@@ -30,11 +30,22 @@ public:
         LuaConsole::Register(L);
     }
 
-    void ExecuteScript(const std::string& path)
+    void ExecuteScript(const std::string& relativePath)
     {
         if (!L)
             Init();
-        if (luaL_dofile(L, path.c_str()) != LUA_OK) {
+
+        IO::Location ownLoc;
+        if (ACAPI_GetOwnLocation(&ownLoc) != NoError)
+            return;
+        ownLoc.DeleteLastLocalName();
+
+        GS::UniString baseStr;
+        ownLoc.ToPath(&baseStr);
+        baseStr.Append("\\");
+        baseStr.Append(relativePath.c_str());
+
+        if (luaL_dofile(L, baseStr.ToCStr().Get()) != LUA_OK) {
             const char* err = lua_tostring(L, -1);
             if (err) {
                 ACAPI_WriteReport(err, false);

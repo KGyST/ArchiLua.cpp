@@ -32,7 +32,7 @@ static GSErrCode __ACENV_CALL MenuCommandHandler(const API_MenuParams* params)
     switch (params->menuItemRef.itemIndex) {
     case 1:
         luaBridge.Init();
-        luaBridge.ExecuteScript("scripts/try_hello.lua");
+        luaBridge.ExecuteScript("lua_scripts\\try_hello.lua");
         break;
     }
     return NoError;

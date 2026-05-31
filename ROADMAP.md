@@ -1,13 +1,17 @@
 # ROADMAP.md
 
-## Phase 1: Foundation (The Bridge)
-- [ ] **Plugin Skeleton:** ArchiCAD Add-on project setup with custom dev-template.
-  - Create the folder structure and project files
-  - Use E:\Git\PolygonReducer.cpp project files and folder structure as a skeleton
-	- Assign new guids, remove unnecessary included headers and object files
-- [ ] **Lua Integration:** Linking Lua 5.4 static lib and `sol2` header-only wrapper via CMake.
-- [ ] **Internal Console:** `ACAPI_WriteReport` wrapper to redirect Lua `print()` to ArchiCAD's session report.
-- [ ] **The "Hello ArchiLua":** Command-switch to execute a hardcoded `try_hello.lua` from the `/scripts` folder.
+## Phase 1: Foundation (The Bridge) ✓
+- [x] **Plugin Skeleton:** ArchiCAD Add-on project setup via PolygonReducer custom template.
+  - New GUIDs, AC27-only, stripped Boost/Geometry/GUI groups
+- [x] **Lua Integration:** Lua 5.4.7 static lib via CMake FetchContent, raw C API (`lua_State*`, `luaL_dofile`).
+  - **sol2 dropped** — incompatible with ArchiCAD's `/Zc:wchar_t-` requirement
+- [x] **Internal Console:** `LuaConsole::Register` wraps `ACAPI_WriteReport` for Lua `print()`.
+- [x] **"Hello ArchiLua":** Menu command executes `lua_scripts/try_hello.lua` relative to add-on location.
+
+## Phase 1.5: Adding a minimalist GUI
+- [ ] An ArchiLua menu item clicked opens a modal window:
+  - A file selector entry and a select file button
+	- A run button
 
 ## Phase 2: The Data Pipeline (Reading)
 - [ ] **Selection Proxy:** Wrap `ACAPI_Selection_Get` to return a list of GUID strings to Lua.

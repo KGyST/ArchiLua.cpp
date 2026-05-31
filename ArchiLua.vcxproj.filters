@@ -11,6 +11,9 @@
     <Filter Include="Source Files\Console">
       <UniqueIdentifier>{B2345678-C901-4DEF-B234-567890ABCDEF}</UniqueIdentifier>
     </Filter>
+    <Filter Include="Source Files\Gui">
+      <UniqueIdentifier>{C3456789-D012-4EFG-C345-678901ABCDEF}</UniqueIdentifier>
+    </Filter>
     <Filter Include="Resource Files">
       <UniqueIdentifier>{67DA6AB6-F800-4c08-8B7A-83BB121AAD01}</UniqueIdentifier>
       <Extensions>rc;ico;cur;bmp;dlg;rc2;rct;bin;rgs;gif;jpg;jpeg;jpe;resx;tiff;tif;png;wav;mfcribbon-ms</Extensions>
@@ -52,6 +55,9 @@
     <ClInclude Include="Src\Console\LuaConsole.hpp">
       <Filter>Source Files\Console</Filter>
     </ClInclude>
+    <ClInclude Include="Src\Gui\LuaScriptDialog.hpp">
+      <Filter>Source Files\Gui</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="Src\ArchiLua.cpp">
@@ -59,6 +65,9 @@
     </ClCompile>
     <ClCompile Include="Src\AC27\APICommon.c">
       <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="Src\Gui\LuaScriptDialog.cpp">
+      <Filter>Source Files\Gui</Filter>
     </ClCompile>
   </ItemGroup>
   <ItemGroup>

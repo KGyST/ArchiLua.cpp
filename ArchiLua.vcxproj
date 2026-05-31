@@ -142,9 +142,11 @@
     <ClInclude Include="Src\AC27\APICommon.h" />
     <ClInclude Include="Src\Bridge\LuaBridge.hpp" />
     <ClInclude Include="Src\Console\LuaConsole.hpp" />
+    <ClInclude Include="Src\Gui\LuaScriptDialog.hpp" />
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="Src\ArchiLua.cpp" />
+    <ClCompile Include="Src\Gui\LuaScriptDialog.cpp" />
     <ClCompile Include="Src\AC27\APICommon.c" />
     <ClCompile Include="$(CommonModules)\Logger\Logger.cpp" />
     <ClCompile Include="$(CommonModules)\DateTime\DateTime.cpp" />

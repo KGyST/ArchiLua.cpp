@@ -3,8 +3,8 @@
 
 namespace ArchiLua {
 
-// Forward declarations for ArchiCAD API function pointers
-// (populated during Phase 2+)
+class Bridge;
+Bridge& GetBridge();
 
 } // namespace ArchiLua
 

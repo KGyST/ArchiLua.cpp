@@ -8,10 +8,10 @@
 - [x] **Internal Console:** `LuaConsole::Register` wraps `ACAPI_WriteReport` for Lua `print()`.
 - [x] **"Hello ArchiLua":** Menu command executes `lua_scripts/try_hello.lua` relative to add-on location.
 
-## Phase 1.5: Adding a minimalist GUI
-- [ ] An ArchiLua menu item clicked opens a modal window:
-  - A file selector entry and a select file button
-	- A run button
+## Phase 1.5: Adding a minimalist GUI ✓
+- [x] A modal dialog opens when menu item is clicked:
+  - File path text edit + "..." browse button (uses `DG::FileDialog`)
+  - "Run" button executes the selected Lua script
 
 ## Phase 2: The Data Pipeline (Reading)
 - [ ] **Selection Proxy:** Wrap `ACAPI_Selection_Get` to return a list of GUID strings to Lua.

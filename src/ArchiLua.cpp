@@ -11,6 +11,7 @@
 #include "ArchiLua.hpp"
 #include "Bridge/LuaBridge.hpp"
 #include "Console/LuaConsole.hpp"
+#include "Gui/LuaScriptDialog.hpp"
 
 #include "Logger/Logger.hpp"
 
@@ -20,6 +21,11 @@ using namespace ArchiLua;
 
 static Bridge luaBridge;
 Logger logger(COMPANY_NAME, APP_NAME);
+
+Bridge& ArchiLua::GetBridge()
+{
+    return luaBridge;
+}
 
 // =============================================================================
 //
@@ -31,8 +37,10 @@ static GSErrCode __ACENV_CALL MenuCommandHandler(const API_MenuParams* params)
 {
     switch (params->menuItemRef.itemIndex) {
     case 1:
-        luaBridge.Init();
-        luaBridge.ExecuteScript("lua_scripts\\try_hello.lua");
+        {
+            LuaScriptDialog dlg;
+            dlg.Invoke();
+        }
         break;
     }
     return NoError;

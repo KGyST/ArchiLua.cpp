@@ -52,8 +52,8 @@ API_AddonType __ACENV_CALL CheckEnvironment(API_EnvirParams* envir)
     if (envir->serverInfo.serverApplication != APIAppl_ArchiCADID)
         return APIAddon_DontRegister;
 
-    RSGetIndString(&envir->addOnInfo.name, 32000, 1, ACAPI_GetOwnResModule());
-    RSGetIndString(&envir->addOnInfo.description, 32000, 2, ACAPI_GetOwnResModule());
+    RSGetIndString(&envir->addOnInfo.name, IDS_ADDON_NAME, 1, ACAPI_GetOwnResModule());
+    RSGetIndString(&envir->addOnInfo.description, IDS_ADDON_NAME, 2, ACAPI_GetOwnResModule());
 
     return APIAddon_Preload;
 }

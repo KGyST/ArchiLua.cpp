@@ -35,27 +35,11 @@ set_target_properties(lua54 PROPERTIES
 )
 
 # -------------------------------------------------------------------
-# sol2 3.3.0 - Header-only library
-# -------------------------------------------------------------------
-FetchContent_Declare(
-  sol2
-  URL https://github.com/ThePhD/sol2/archive/refs/tags/v3.3.0.tar.gz
-)
-
-FetchContent_GetProperties(sol2)
-if(NOT sol2_POPULATED)
-  message(STATUS "Fetching sol2 3.3.0...")
-  FetchContent_Populate(sol2)
-endif()
-
-# -------------------------------------------------------------------
 # Generate MSBuild property sheet for ArchiLua.vcxproj
 # -------------------------------------------------------------------
 set(LUA_INCLUDE_DIR "${lua_SOURCE_DIR}/src")
 set(LUA_LIB_DIR     "${CMAKE_BINARY_DIR}")
 set(LUA_LIB_NAME    "lua54")
-set(SOL2_INCLUDE_DIR "${sol2_SOURCE_DIR}/include")
-
 configure_file(
   "${CMAKE_CURRENT_SOURCE_DIR}/ArchiLuaDeps.props.in"
   "${CMAKE_CURRENT_BINARY_DIR}/ArchiLuaDeps.props"
@@ -67,7 +51,6 @@ message(STATUS "============================================")
 message(STATUS "  ArchiLua Dependencies Generated")
 message(STATUS "  Lua include : ${LUA_INCLUDE_DIR}")
 message(STATUS "  Lua lib     : ${LUA_LIB_DIR}/${LUA_LIB_NAME}.lib")
-message(STATUS "  sol2 include: ${SOL2_INCLUDE_DIR}")
 message(STATUS "  Props file  : ${CMAKE_CURRENT_BINARY_DIR}/ArchiLuaDeps.props")
 message(STATUS "============================================")
 message(STATUS "")

@@ -1,6 +1,11 @@
 #pragma once
 
-#include <sol/sol.hpp>
+extern "C" {
+#include <lua.h>
+#include <lauxlib.h>
+#include <lualib.h>
+}
+
 #include <string>
 
 #include "../Console/LuaConsole.hpp"
@@ -17,42 +22,39 @@ public:
 
     void Init()
     {
-        if (initialized)
+        if (L)
             return;
+        L = luaL_newstate();
+        luaL_openlibs(L);
 
-        lua.open_libraries(
-            sol::lib::base,
-            sol::lib::math,
-            sol::lib::table,
-            sol::lib::string,
-            sol::lib::coroutine
-        );
-
-        RegisterConsole(lua);
-        initialized = true;
+        LuaConsole::Register(L);
     }
 
     void ExecuteScript(const std::string& path)
     {
-        if (!initialized)
+        if (!L)
             Init();
-
-        lua.script_file(path);
+        if (luaL_dofile(L, path.c_str()) != LUA_OK) {
+            const char* err = lua_tostring(L, -1);
+            if (err) {
+                ACAPI_WriteReport(err, false);
+            }
+            lua_pop(L, 1);
+        }
     }
 
     void Shutdown()
     {
-        if (!initialized)
-            return;
-
-        initialized = false;
+        if (L) {
+            lua_close(L);
+            L = nullptr;
+        }
     }
 
-    sol::state& State() { return lua; }
+    lua_State* State() { return L; }
 
 private:
-    sol::state lua;
-    bool initialized = false;
+    lua_State* L = nullptr;
 };
 
 } // namespace ArchiLua

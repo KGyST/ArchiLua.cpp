@@ -4,6 +4,5 @@
     <LuaIncludeDir>@LUA_INCLUDE_DIR@</LuaIncludeDir>
     <LuaLibDir>@LUA_LIB_DIR@</LuaLibDir>
     <LuaLibName>@LUA_LIB_NAME@</LuaLibName>
-    <Sol2IncludeDir>@SOL2_INCLUDE_DIR@</Sol2IncludeDir>
   </PropertyGroup>
 </Project>

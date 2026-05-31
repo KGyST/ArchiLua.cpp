@@ -63,7 +63,7 @@
   </PropertyGroup>
   <ItemDefinitionGroup>
     <ClCompile>
-      <AdditionalIncludeDirectories>Src;$(CommonModules);$(ACDevKitSupport)\Inc;$(ACDevKitModules)\RS;$(ACDevKitModules)\CADInfrastructureBase;$(ACDevKitModules)\Graphix;$(ACDevKitSupport)\Inc;$(ACDevKitModules)\GSRoot;$(ACDevKitModules)\GSUtils;$(ACDevKitModules)\DGLib;$(ACDevKitModules)\Geometry;$(ACDevKitModules)\InputOutput;$(ACDevKitModules)\UCLib;$(LuaIncludeDir);$(Sol2IncludeDir);%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>Src;$(CommonModules);$(ACDevKitSupport)\Inc;$(ACDevKitModules)\RS;$(ACDevKitModules)\CADInfrastructureBase;$(ACDevKitModules)\Graphix;$(ACDevKitSupport)\Inc;$(ACDevKitModules)\GSRoot;$(ACDevKitModules)\GSUtils;$(ACDevKitModules)\DGLib;$(ACDevKitModules)\Geometry;$(ACDevKitModules)\InputOutput;$(ACDevKitModules)\UCLib;$(LuaIncludeDir);%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <DebugInformationFormat>ProgramDatabase</DebugInformationFormat>
       <SuppressStartupBanner>true</SuppressStartupBanner>
       <WarningLevel>Level4</WarningLevel>
@@ -109,7 +109,7 @@
     <Link>
       <GenerateDebugInformation>true</GenerateDebugInformation>
       <ProgramDatabaseFile>$(OutDir)$(ProjectName).pdb</ProgramDatabaseFile>
-      <AdditionalDependencies>msvcrtd.lib;msvcprtd.lib;$(LuaLibName).lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>ucrtd.lib;msvcrtd.lib;msvcprtd.lib;$(LuaLibName).lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(BuildType)'=='Release'">
@@ -123,7 +123,7 @@
     <Link>
       <OptimizeReferences>true</OptimizeReferences>
       <EnableCOMDATFolding>true</EnableCOMDATFolding>
-      <AdditionalDependencies>msvcrt.lib;msvcprt.lib;$(LuaLibName).lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>ucrt.lib;msvcrt.lib;msvcprt.lib;$(LuaLibName).lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(ACVersion)'=='27'">
@@ -135,7 +135,6 @@
   <ItemGroup>
     <ClInclude Include="$(CommonModules)\AC27.hpp" />
     <ClInclude Include="$(CommonModules)\Logger\Logger.hpp" />
-    <ClInclude Include="$(CommonModules)\Utils\Resource.hpp" />
     <ClInclude Include="Src\APIEnvir.h" />
     <ClInclude Include="Src\ArchiLua.hpp" />
     <ClInclude Include="Src\ArchiLua_Resource.h" />
@@ -147,7 +146,8 @@
     <ClCompile Include="Src\ArchiLua.cpp" />
     <ClCompile Include="Src\AC27\APICommon.c" />
     <ClCompile Include="$(CommonModules)\Logger\Logger.cpp" />
-    <ClCompile Include="$(CommonModules)\Utils\Resource.cpp" />
+    <ClCompile Include="$(CommonModules)\DateTime\DateTime.cpp" />
+    <ClCompile Include="$(CommonModules)\WinReg\WinReg.cpp" />
   </ItemGroup>
   <ItemGroup>
     <CustomBuild Include="RFIX\$(ProjectName)Fix.grc">

@@ -1,5 +1,9 @@
-STR "#32000" "ArchiLua"
-STR "#32001" "Hello ArchiLua"
-MENU "ArchiLua" {
-  ITEM "Hello ArchiLua" 1 {}
+'STR#' 32000 "Add-on Name and Description" {
+/* [  1] */    "ArchiLua"
+/* [  2] */    "ArchiCAD API <-> Lua 5.4 bridge"
+}
+
+'STR#' 32500 "ArchiLua Menu" {
+/* [   ] */    "ArchiLua"
+/* [  1] */    "Hello ArchiLua^ES^EE^EI^ED^EL^EW^E3"
 }

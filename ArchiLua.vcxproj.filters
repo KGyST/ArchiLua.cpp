@@ -1,0 +1,113 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <Filter Include="Source Files">
+      <UniqueIdentifier>{4FC737F1-C7A5-4376-A066-2A32D752A2FF}</UniqueIdentifier>
+      <Extensions>cpp;c;cc;cxx;c++;cppm;ixx;def;odl;idl;hpj;bat;asm;asmx</Extensions>
+    </Filter>
+    <Filter Include="Source Files\Bridge">
+      <UniqueIdentifier>{A1234567-B890-4CDE-A123-456789ABCDEF}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Source Files\Console">
+      <UniqueIdentifier>{B2345678-C901-4DEF-B234-567890ABCDEF}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Resource Files">
+      <UniqueIdentifier>{67DA6AB6-F800-4c08-8B7A-83BB121AAD01}</UniqueIdentifier>
+      <Extensions>rc;ico;cur;bmp;dlg;rc2;rct;bin;rgs;gif;jpg;jpeg;jpe;resx;tiff;tif;png;wav;mfcribbon-ms</Extensions>
+    </Filter>
+    <Filter Include="Libraries">
+      <UniqueIdentifier>{51e8555b-c3f8-46ae-87f6-df2610fa57df}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Visualizers">
+      <UniqueIdentifier>{c17c8a4a-2b83-4fdb-88ee-47e3fec7822f}</UniqueIdentifier>
+    </Filter>
+  </ItemGroup>
+  <ItemGroup>
+    <CustomBuild Include="RFIX.WIN\$(ProjectName).rc2">
+      <Filter>Resource Files</Filter>
+    </CustomBuild>
+    <CustomBuild Include="RFIX\$(ProjectName)Fix.grc">
+      <Filter>Resource Files</Filter>
+    </CustomBuild>
+    <CustomBuild Include="RINT\$(ProjectName).grc">
+      <Filter>Resource Files</Filter>
+    </CustomBuild>
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="Src\APIEnvir.h">
+      <Filter>Source Files</Filter>
+    </ClInclude>
+    <ClInclude Include="Src\ArchiLua.hpp">
+      <Filter>Source Files</Filter>
+    </ClInclude>
+    <ClInclude Include="Src\ArchiLua_Resource.h">
+      <Filter>Source Files</Filter>
+    </ClInclude>
+    <ClInclude Include="Src\AC27\APICommon.h">
+      <Filter>Source Files</Filter>
+    </ClInclude>
+    <ClInclude Include="Src\Bridge\LuaBridge.hpp">
+      <Filter>Source Files\Bridge</Filter>
+    </ClInclude>
+    <ClInclude Include="Src\Console\LuaConsole.hpp">
+      <Filter>Source Files\Console</Filter>
+    </ClInclude>
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="Src\ArchiLua.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="Src\AC27\APICommon.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+  </ItemGroup>
+  <ItemGroup>
+    <Library Include="$(ACDevKitModules)\DGLib\Win\DGImp.lib">
+      <Filter>Libraries</Filter>
+    </Library>
+    <Library Include="$(ACDevKitModules)\GSRoot\Win\GSRootImp.lib">
+      <Filter>Libraries</Filter>
+    </Library>
+    <Library Include="$(ACDevKitModules)\GSUtils\Win\GSUtilsImp.lib">
+      <Filter>Libraries</Filter>
+    </Library>
+    <Library Include="$(ACDevKitModules)\InputOutput\Win\InputOutputImp.lib">
+      <Filter>Libraries</Filter>
+    </Library>
+    <Library Include="$(ACDevKitModules)\UCLib\Win\UCImp.lib">
+      <Filter>Libraries</Filter>
+    </Library>
+    <Library Include="$(ACDevKitModules)\Geometry\Win\GeometryImp.LIB">
+      <Filter>Libraries</Filter>
+    </Library>
+    <Library Include="$(ACDevKitModules)\RS\Win\RSImp.LIB">
+      <Filter>Libraries</Filter>
+    </Library>
+  </ItemGroup>
+  <ItemGroup>
+    <Natvis Include="$(NatVisRoot)\ODB.natvis">
+      <Filter>Visualizers</Filter>
+    </Natvis>
+    <Natvis Include="$(NatVisRoot)\DynamicObject.natvis">
+      <Filter>Visualizers</Filter>
+    </Natvis>
+    <Natvis Include="$(NatVisRoot)\Geometry.natvis">
+      <Filter>Visualizers</Filter>
+    </Natvis>
+    <Natvis Include="$(NatVisRoot)\GS.natvis">
+      <Filter>Visualizers</Filter>
+    </Natvis>
+    <Natvis Include="$(NatVisRoot)\GSModeler.natvis">
+      <Filter>Visualizers</Filter>
+    </Natvis>
+    <Natvis Include="$(NatVisRoot)\GSXML.natvis">
+      <Filter>Visualizers</Filter>
+    </Natvis>
+    <Natvis Include="$(NatVisRoot)\IO.natvis">
+      <Filter>Visualizers</Filter>
+    </Natvis>
+    <Natvis Include="$(NatVisRoot)\Brep.natvis">
+      <Filter>Visualizers</Filter>
+    </Natvis>
+  </ItemGroup>
+</Project>

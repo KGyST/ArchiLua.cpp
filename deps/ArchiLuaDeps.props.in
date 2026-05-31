@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <PropertyGroup Label="UserMacros">
+    <LuaIncludeDir>@LUA_INCLUDE_DIR@</LuaIncludeDir>
+    <LuaLibDir>@LUA_LIB_DIR@</LuaLibDir>
+    <LuaLibName>@LUA_LIB_NAME@</LuaLibName>
+    <Sol2IncludeDir>@SOL2_INCLUDE_DIR@</Sol2IncludeDir>
+  </PropertyGroup>
+</Project>

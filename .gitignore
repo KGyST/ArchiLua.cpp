@@ -1,0 +1,16 @@
+# Build output
+Build/
+
+# Visual Studio
+.vs/
+*.user
+*.suo
+*.sdf
+*.opensdf
+*.db
+*.db-wal
+*.db-shm
+
+# CMake deps
+deps/build/
+deps/generated/

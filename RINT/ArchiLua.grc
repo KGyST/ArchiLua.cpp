@@ -1,0 +1,5 @@
+STR "#32000" "ArchiLua"
+STR "#32001" "Hello ArchiLua"
+MENU "ArchiLua" {
+  ITEM "Hello ArchiLua" 1 {}
+}

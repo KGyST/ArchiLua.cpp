@@ -1,0 +1,221 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project DefaultTargets="Build" ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup Label="ProjectConfigurations">
+    <ProjectConfiguration Include="Debug 27|x64">
+      <Configuration>Debug 27</Configuration>
+      <Platform>x64</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="Release 27|x64">
+      <Configuration>Release 27</Configuration>
+      <Platform>x64</Platform>
+    </ProjectConfiguration>
+  </ItemGroup>
+  <PropertyGroup Label="Globals">
+    <ProjectGuid>{8F3E4A2B-1C5D-4E6F-9A7B-8C2D3E4F5A6B}</ProjectGuid>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
+  <PropertyGroup Label="Configuration">
+    <ConfigurationType>DynamicLibrary</ConfigurationType>
+    <CharacterSet>Unicode</CharacterSet>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)'=='Debug 27'" Label="Configuration">
+    <ACVersion>27</ACVersion>
+    <BuildType>Debug</BuildType>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)'=='Release 27'" Label="Configuration">
+    <ACVersion>27</ACVersion>
+    <BuildType>Release</BuildType>
+  </PropertyGroup>
+  <!-- ACVersion must be defined for local.props-->
+  <Import Project="local.props" />
+  <PropertyGroup Condition="'$(ACVersion)'=='27'" Label="Configuration">
+    <CharacterSet>Unicode</CharacterSet>
+    <PlatformToolset>v142</PlatformToolset>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(BuildType)'=='Debug'" Label="Configuration">
+    <LinkIncremental>true</LinkIncremental>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(BuildType)'=='Release'" Label="Configuration">
+    <LinkIncremental>false</LinkIncremental>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(ACVersion)'=='27'" Label="Globals">
+    <WindowsTargetPlatformVersion>10.0</WindowsTargetPlatformVersion>
+    <WinCorr />
+    <ImpCorr />
+  </PropertyGroup>
+  <PropertyGroup Label="UserMacros">
+  </PropertyGroup>
+  <!-- Import Lua/sol2 paths from CMake-generated props -->
+  <Import Project="deps\build\ArchiLuaDeps.props" Condition="Exists('deps\build\ArchiLuaDeps.props')" />
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
+  <ImportGroup Label="ExtensionSettings">
+  </ImportGroup>
+  <ImportGroup Label="PropertySheets" Condition="'$(Configuration)'=='Debug'">
+    <Import Project="$(LocalAppData)\Microsoft\VisualStudio\10.0\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(LocalAppData)\Microsoft\VisualStudio\10.0\Microsoft.Cpp.$(Platform).user.props')" />
+  </ImportGroup>
+  <ImportGroup Label="PropertySheets" Condition="'$(Configuration)'=='Release'">
+    <Import Project="$(LocalAppData)\Microsoft\VisualStudio\10.0\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(LocalAppData)\Microsoft\VisualStudio\10.0\Microsoft.Cpp.$(Platform).user.props')" />
+  </ImportGroup>
+  <PropertyGroup>
+    <IntDir>Build\$(Configuration)\</IntDir>
+    <OutDir>Build\$(Configuration)\</OutDir>
+    <TargetExt>.apx</TargetExt>
+  </PropertyGroup>
+  <ItemDefinitionGroup>
+    <ClCompile>
+      <AdditionalIncludeDirectories>Src;$(CommonModules);$(ACDevKitSupport)\Inc;$(ACDevKitModules)\RS;$(ACDevKitModules)\CADInfrastructureBase;$(ACDevKitModules)\Graphix;$(ACDevKitSupport)\Inc;$(ACDevKitModules)\GSRoot;$(ACDevKitModules)\GSUtils;$(ACDevKitModules)\DGLib;$(ACDevKitModules)\Geometry;$(ACDevKitModules)\InputOutput;$(ACDevKitModules)\UCLib;$(LuaIncludeDir);$(Sol2IncludeDir);%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <DebugInformationFormat>ProgramDatabase</DebugInformationFormat>
+      <SuppressStartupBanner>true</SuppressStartupBanner>
+      <WarningLevel>Level4</WarningLevel>
+      <PreprocessorDefinitions>ACVER=$(ACVersion);_STLP_DONT_FORCE_MSVC_LIB_NAME;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <StringPooling>true</StringPooling>
+      <MinimalRebuild>false</MinimalRebuild>
+      <BufferSecurityCheck>true</BufferSecurityCheck>
+      <RuntimeTypeInfo>true</RuntimeTypeInfo>
+      <PrecompiledHeader>
+      </PrecompiledHeader>
+      <ObjectFileName>$(IntDir)</ObjectFileName>
+      <ProgramDataBaseFileName>$(OutDir)$(ProjectName).pdb</ProgramDataBaseFileName>
+      <BrowseInformationFile>$(IntDir)</BrowseInformationFile>
+      <CallingConvention>FastCall</CallingConvention>
+      <CompileAs>CompileAsCpp</CompileAs>
+      <DisableSpecificWarnings>4996;%(DisableSpecificWarnings)</DisableSpecificWarnings>
+      <TreatWChar_tAsBuiltInType>false</TreatWChar_tAsBuiltInType>
+    </ClCompile>
+    <Link>
+      <OutputFile>$(OutDir)$(ProjectName).apx</OutputFile>
+      <ProgramDatabaseFile>$(OutDir)$(ProjectName).pdb</ProgramDatabaseFile>
+      <SubSystem>NotSet</SubSystem>
+      <EntryPointSymbol>DllMainEntry</EntryPointSymbol>
+      <TargetMachine>MachineX64</TargetMachine>
+      <ImportLibrary>
+      </ImportLibrary>
+      <LinkDLL>true</LinkDLL>
+      <AdditionalOptions>/export:GetExportedFuncAddrs,%401 /export:SetImportedFuncAddrs,%402 %(AdditionalOptions)</AdditionalOptions>
+      <AdditionalLibraryDirectories>$(LuaLibDir);%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
+    </Link>
+  </ItemDefinitionGroup>
+  <ItemDefinitionGroup Condition="'$(BuildType)'=='Debug'">
+    <ClCompile>
+      <Optimization>Disabled</Optimization>
+      <TreatWarningAsError>false</TreatWarningAsError>
+      <PreprocessorDefinitions>_ITERATOR_DEBUG_LEVEL=2;_DEBUG;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <BasicRuntimeChecks>EnableFastChecks</BasicRuntimeChecks>
+      <RuntimeLibrary>MultiThreadedDebugDLL</RuntimeLibrary>
+      <FunctionLevelLinking>true</FunctionLevelLinking>
+      <BrowseInformation>false</BrowseInformation>
+      <DisableSpecificWarnings>4100;4189;%(DisableSpecificWarnings)</DisableSpecificWarnings>
+    </ClCompile>
+    <Link>
+      <GenerateDebugInformation>true</GenerateDebugInformation>
+      <ProgramDatabaseFile>$(OutDir)$(ProjectName).pdb</ProgramDatabaseFile>
+      <AdditionalDependencies>msvcrtd.lib;msvcprtd.lib;$(LuaLibName).lib;%(AdditionalDependencies)</AdditionalDependencies>
+    </Link>
+  </ItemDefinitionGroup>
+  <ItemDefinitionGroup Condition="'$(BuildType)'=='Release'">
+    <ClCompile>
+      <Optimization>MaxSpeed</Optimization>
+      <TreatWarningAsError>true</TreatWarningAsError>
+      <PreprocessorDefinitions>NDEBUG;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <RuntimeLibrary>MultiThreadedDLL</RuntimeLibrary>
+      <BrowseInformation>true</BrowseInformation>
+    </ClCompile>
+    <Link>
+      <OptimizeReferences>true</OptimizeReferences>
+      <EnableCOMDATFolding>true</EnableCOMDATFolding>
+      <AdditionalDependencies>msvcrt.lib;msvcprt.lib;$(LuaLibName).lib;%(AdditionalDependencies)</AdditionalDependencies>
+    </Link>
+  </ItemDefinitionGroup>
+  <ItemDefinitionGroup Condition="'$(ACVersion)'=='27'">
+    <ClCompile>
+      <AdditionalIncludeDirectories>Src;$(CommonModules);$(ACDevKitSupport)\Inc;$(ACDevKitModules)\RS;$(ACDevKitModules)\CADInfrastructureBase;$(ACDevKitModules)\Graphix;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <LanguageStandard>stdcpp17</LanguageStandard>
+    </ClCompile>
+  </ItemDefinitionGroup>
+  <ItemGroup>
+    <ClInclude Include="$(CommonModules)\AC27.hpp" />
+    <ClInclude Include="$(CommonModules)\Logger\Logger.hpp" />
+    <ClInclude Include="$(CommonModules)\Utils\Resource.hpp" />
+    <ClInclude Include="Src\APIEnvir.h" />
+    <ClInclude Include="Src\ArchiLua.hpp" />
+    <ClInclude Include="Src\ArchiLua_Resource.h" />
+    <ClInclude Include="Src\AC27\APICommon.h" />
+    <ClInclude Include="Src\Bridge\LuaBridge.hpp" />
+    <ClInclude Include="Src\Console\LuaConsole.hpp" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="Src\ArchiLua.cpp" />
+    <ClCompile Include="Src\AC27\APICommon.c" />
+    <ClCompile Include="$(CommonModules)\Logger\Logger.cpp" />
+    <ClCompile Include="$(CommonModules)\Utils\Resource.cpp" />
+  </ItemGroup>
+  <ItemGroup>
+    <CustomBuild Include="RFIX\$(ProjectName)Fix.grc">
+      <FileType>Document</FileType>
+      <Command Condition="'$(BuildType)'=='Debug'">"$(ACDevKitSupport)\Tools\Win\ResConv.exe" -m r -D WINDOWS -T W -q utf8 1252 -i "RINT\$(ProjectName).grc" -D _DEBUG -o "$(OutDir)\RO\$(ProjectName).grc.rc2"</Command>
+      <Command Condition="'$(BuildType)'=='Release'">"$(ACDevKitSupport)\Tools\Win\ResConv.exe" -m r -D WINDOWS -T W -q utf8 1252 -i "RINT\$(ProjectName).grc" -o "$(OutDir)\RO\$(ProjectName).grc.rc2"</Command>
+      <Message>Compiling the non-localized GRC file...</Message>
+      <Outputs>$(OutDir)\RO\$(ProjectName)Fix.grc.rc2;%(Outputs)</Outputs>
+    </CustomBuild>
+    <CustomBuild Include="RINT\$(ProjectName).grc">
+      <FileType>Document</FileType>
+      <Command Condition="'$(BuildType)'=='Debug'">"$(ACDevKitSupport)\Tools\Win\ResConv.exe" -m r -D WINDOWS -T W -q utf8 1252 -i "RFIX\$(ProjectName)Fix.grc" -p "RFIX\Images" -D _DEBUG -o "$(OutDir)\RO\$(ProjectName)Fix.grc.rc2"</Command>
+      <Command Condition="'$(BuildType)'=='Release'">"$(ACDevKitSupport)\Tools\Win\ResConv.exe" -m r -D WINDOWS -T W -q utf8 1252 -i "RFIX\$(ProjectName)Fix.grc" -p "RFIX\Images" -o "$(OutDir)\RO\$(ProjectName)Fix.grc.rc2"</Command>
+      <Message>Compiling the localized GRC file...</Message>
+      <Outputs>$(OutDir)\RO\$(ProjectName).grc.rc2;%(Outputs)</Outputs>
+    </CustomBuild>
+    <CustomBuild Include="RFIX.WIN\$(ProjectName).rc2">
+      <FileType>RC</FileType>
+      <Command Condition="'$(BuildType)'=='Debug'">rc /i "$(ACDevKitSupport)\Inc" /i "$(ACDevKitModules)\DGLib" /i "$(OutDir)\RO" /i "Src" /d _DEBUG /fo"$(OutDir)$(ProjectName).res" "RFIX.WIN\$(ProjectName).rc2"</Command>
+      <Command Condition="'$(BuildType)'=='Release'">rc /i "$(ACDevKitSupport)\Inc" /i "$(ACDevKitModules)\DGLib" /i "$(OutDir)\RO" /i "Src" /fo"$(OutDir)$(ProjectName).res" "RFIX.WIN\$(ProjectName).rc2"</Command>
+      <Message>Compiling the RC2 file...</Message>
+      <Outputs>$(OutDir)$(ProjectName).res;%(Outputs)</Outputs>
+      <AdditionalInputs>$(OutDir)\RO\$(ProjectName).grc.rc2;$(OutDir)\RO\$(ProjectName)Fix.grc.rc2;%(AdditionalInputs)</AdditionalInputs>
+    </CustomBuild>
+  </ItemGroup>
+  <ItemGroup>
+    <Library Condition="'$(BuildType)'=='Debug'" Include="$(ACDevKitSupport)\Lib$(WinCorr)\ACAP_STATD.lib">
+      <FileType>Document</FileType>
+    </Library>
+    <Library Condition="'$(BuildType)'=='Release'" Include="$(ACDevKitSupport)\Lib$(WinCorr)\ACAP_STAT.lib">
+      <FileType>Document</FileType>
+    </Library>
+    <Library Include="$(ACDevKitModules)\DGLib\Win\DGImp.lib">
+      <FileType>Document</FileType>
+    </Library>
+    <Library Include="$(ACDevKitModules)\GSRoot\Win\GSRootImp.lib">
+      <FileType>Document</FileType>
+    </Library>
+    <Library Include="$(ACDevKitModules)\GSUtils\Win\GSUtilsImp.lib">
+      <FileType>Document</FileType>
+    </Library>
+    <Library Include="$(ACDevKitModules)\InputOutput\Win\InputOutputImp.lib">
+      <FileType>Document</FileType>
+    </Library>
+    <Library Include="$(ACDevKitModules)\UCLib\Win\UCImp.lib">
+      <FileType>Document</FileType>
+    </Library>
+    <Library Include="$(ACDevKitModules)\Geometry\Win\GeometryImp.LIB">
+      <FileType>Document</FileType>
+    </Library>
+    <Library Include="$(ACDevKitModules)\RS\Win\RSImp.LIB">
+      <FileType>Document</FileType>
+    </Library>
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="scripts\*.lua" />
+  </ItemGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
+  <ImportGroup Label="ExtensionTargets">
+  </ImportGroup>
+  <ItemGroup>
+    <Natvis Include="$(NatVisRoot)\Brep.natvis" />
+    <Natvis Include="$(NatVisRoot)\DynamicObject.natvis" />
+    <Natvis Include="$(NatVisRoot)\Geometry.natvis" />
+    <Natvis Include="$(NatVisRoot)\GS.natvis" />
+    <Natvis Include="$(NatVisRoot)\GSModeler.natvis" />
+    <Natvis Include="$(NatVisRoot)\GSXML.natvis" />
+    <Natvis Include="$(NatVisRoot)\IO.natvis" />
+    <Natvis Include="$(NatVisRoot)\ODB.natvis" />
+  </ItemGroup>
+</Project>

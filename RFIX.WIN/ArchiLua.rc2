@@ -1,0 +1,4 @@
+// Windows resources for ArchiLua
+#include "ArchiLua_Resource.h"
+#include "ArchiLua.grc.rc2"
+#include "ArchiLuaFix.grc.rc2"

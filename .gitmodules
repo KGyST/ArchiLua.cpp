@@ -1,0 +1,3 @@
+[submodule "CommonLibs.cpp"]
+	path = CommonLibs.cpp
+	url = https://github.com/KGyST/CPPCommonLibs.git

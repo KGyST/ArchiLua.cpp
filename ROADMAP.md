@@ -25,7 +25,7 @@
   - `acapi.getpoly(guid)` returns raw polygon vertex array for any element with a polygon
   - `acapi.getwall(guid)` kept as-is for detailed wall data (openings etc.)
 - [x] **Write new Lua Scripts** to demonstrate reading of multiple object types
-  - `lua_scripts/explore_selection.lua` — iterates selection, prints type + polygon for each
+  - `lua_scripts/try_selection.lua` — iterates selection, prints type + polygon for each
 - [x] Convenience fixes
   - `ArchiLua` name → `_ArchiLua` prefix when debugging (appears first in add‑ons list)
   - `APIAddon_Normal` lifecycle already done — add-on loads on menu click, unloads after dialog closes

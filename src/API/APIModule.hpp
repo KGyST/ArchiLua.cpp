@@ -204,12 +204,8 @@ static int GetElement(lua_State* L)
     BNZeroMemory(&memo, sizeof(memo));
     GSErrCode memoErr = ACAPI_Element_GetMemo(guid, &memo, APIMemoMask_Polygon);
     if (memoErr == NoError && memo.coords != nullptr) {
-        Int32 nCoords = 0;
-        switch (elem.header.type.typeID) {
-            case API_WallID:   nCoords = elem.wall.poly.nCoords;   break;
-            case API_SlabID:   nCoords = elem.slab.poly.nCoords;   break;
-            default: break;
-        }
+        GSSize total = BMGetPtrSize(reinterpret_cast<GSPtr>(memo.coords)) / sizeof(API_Coord);
+        Int32 nCoords = (Int32)total;
         if (nCoords > 1) {
             lua_createtable(L, nCoords - 1, 0);
             for (Int32 i = 1; i < nCoords; ++i) {
@@ -249,16 +245,13 @@ static int GetPoly(lua_State* L)
         return 1;
     }
 
-    Int32 nCoords = 0;
-    switch (elem.header.type.typeID) {
-        case API_WallID:   nCoords = elem.wall.poly.nCoords;   break;
-        case API_SlabID:   nCoords = elem.slab.poly.nCoords;   break;
-        default:
-        {
-            GSSize total = BMGetPtrSize(reinterpret_cast<GSPtr>(memo.coords)) / sizeof(API_Coord);
-            nCoords = (Int32)total;
-            break;
-        }
+    GSSize total = BMGetPtrSize(reinterpret_cast<GSPtr>(memo.coords)) / sizeof(API_Coord);
+    Int32 nCoords = (Int32)total;
+
+    if (nCoords <= 1) {
+        ACAPI_DisposeElemMemoHdls(&memo);
+        lua_pushnil(L);
+        return 1;
     }
 
     lua_createtable(L, nCoords - 1, 0);

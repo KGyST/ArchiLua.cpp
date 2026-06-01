@@ -15,7 +15,7 @@ namespace ArchiLua {
 
 class Bridge {
 public:
-    Bridge() = default;
+    Bridge() { LoadLastScriptPath(); }
     ~Bridge() { Shutdown(); }
 
     Bridge(const Bridge&) = delete;

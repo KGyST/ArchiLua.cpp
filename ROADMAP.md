@@ -20,17 +20,19 @@
 - [x] **Opening Extraction:** Extract doors/windows from `API_ElementMemo` via `BMGetPtrSize` (not null-sentinel).
 
 ## Phase 2.5: Extending Reading Functionality and Fixes
-- [ ] **Add more Object Types** to the reading functionality
-  - Skim through PolygonReducer code and get object types that PolygonReducer handles
-  - Try to include any data type / function
-- [ ] **Write new Lua Scripts** to demonstrate reading of multiple object types
-- [ ] **Write Defaults to Registry** (persist last script path, window size/pos, etc.)
-- [ ] **Remote Debugging Bridge:** Integrate `mobdebug` or `LuaPanda` support for remote IDE attachment.
-    - Implement a "Wait for Debugger" flag in the C++ host to allow breakpoint synchronization before script execution.
-- [ ] Convenience fixes
+- [x] **Add more Object Types** to the reading functionality
+  - Generic `acapi.get(guid)` returns guid, layer, typeName + polygon coords for walls/slabs
+  - `acapi.getpoly(guid)` returns raw polygon vertex array for any element with a polygon
+  - `acapi.getwall(guid)` kept as-is for detailed wall data (openings etc.)
+- [x] **Write new Lua Scripts** to demonstrate reading of multiple object types
+  - `lua_scripts/explore_selection.lua` — iterates selection, prints type + polygon for each
+- [x] Convenience fixes
   - `ArchiLua` name → `_ArchiLua` prefix when debugging (appears first in add‑ons list)
   - `APIAddon_Normal` lifecycle already done — add-on loads on menu click, unloads after dialog closes
-
+- [x] **Write Defaults to Registry** (persist last script path via Win32 registry helpers in Bridge)
+- [ ] **Remote Debugging Bridge:** Integrate `mobdebug` or `LuaPanda` support for remote IDE attachment.
+    - Implement a "Wait for Debugger" flag in the C++ host to allow breakpoint synchronization before script execution.
+		
 ## Phase 3: The Action (Writing)
 - [ ] **Object Finder:** Search Library Part by name (`m_Viapanel_Wallpanel`) and return its `LibIndex`.
 - [ ] **Parameter Marshaling:** Map Lua tables `{ name = value }` to `API_AddParID` handles.

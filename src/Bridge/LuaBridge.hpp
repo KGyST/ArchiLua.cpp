@@ -30,6 +30,8 @@ public:
 
         LuaConsole::Register(L);
         APIModule::Register(L);
+
+        LoadLastScriptPath();
     }
 
     void ExecuteScript(const std::string& path)
@@ -38,6 +40,7 @@ public:
             Init();
 
         lastScriptPath = path;
+        SaveLastScriptPath();
 
         GS::UniString fullPath;
         if (path.size() >= 2 && path[1] == ':') {
@@ -84,6 +87,40 @@ public:
 private:
     lua_State* L = nullptr;
     std::string lastScriptPath;
+
+    static const wchar_t* RegKey() { return L"Software\\GRAPHISOFT\\ArchiLua"; }
+
+    void LoadLastScriptPath()
+    {
+        HKEY hKey = nullptr;
+        if (RegOpenKeyExW(HKEY_CURRENT_USER, RegKey(), 0, KEY_READ, &hKey) == ERROR_SUCCESS) {
+            wchar_t buf[1024] = {};
+            DWORD size = sizeof(buf);
+            DWORD type = 0;
+            if (RegQueryValueExW(hKey, L"LastScriptPath", nullptr, &type, (LPBYTE)buf, &size) == ERROR_SUCCESS && type == REG_SZ) {
+                int len = WideCharToMultiByte(CP_UTF8, 0, buf, -1, nullptr, 0, nullptr, nullptr);
+                if (len > 0) {
+                    lastScriptPath.resize(len - 1);
+                    WideCharToMultiByte(CP_UTF8, 0, buf, -1, &lastScriptPath[0], len, nullptr, nullptr);
+                }
+            }
+            RegCloseKey(hKey);
+        }
+    }
+
+    void SaveLastScriptPath()
+    {
+        HKEY hKey = nullptr;
+        if (RegCreateKeyExW(HKEY_CURRENT_USER, RegKey(), 0, nullptr, REG_OPTION_NON_VOLATILE, KEY_WRITE, nullptr, &hKey, nullptr) == ERROR_SUCCESS) {
+            int wlen = MultiByteToWideChar(CP_UTF8, 0, lastScriptPath.c_str(), -1, nullptr, 0);
+            if (wlen > 0) {
+                std::wstring wbuf(wlen, L'\0');
+                MultiByteToWideChar(CP_UTF8, 0, lastScriptPath.c_str(), -1, &wbuf[0], wlen);
+                RegSetValueExW(hKey, L"LastScriptPath", 0, REG_SZ, (const BYTE*)wbuf.c_str(), (DWORD)(wlen * sizeof(wchar_t)));
+            }
+            RegCloseKey(hKey);
+        }
+    }
 };
 
 } // namespace ArchiLua

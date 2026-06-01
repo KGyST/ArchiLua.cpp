@@ -62,6 +62,9 @@ API_AddonType __ACENV_CALL CheckEnvironment(API_EnvirParams* envir)
 
     RSGetIndString(&envir->addOnInfo.name, IDS_ADDON_NAME, 1, ACAPI_GetOwnResModule());
     RSGetIndString(&envir->addOnInfo.description, IDS_ADDON_NAME, 2, ACAPI_GetOwnResModule());
+#ifdef _DEBUG
+    envir->addOnInfo.name.Insert(0, L'_');
+#endif
 
     return APIAddon_Normal;
 }

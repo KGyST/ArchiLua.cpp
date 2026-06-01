@@ -13,23 +13,23 @@
   - File path text edit + "..." browse button (uses `DG::FileDialog`)
   - "Run" button executes the selected Lua script
 
-## Phase 2: The Data Pipeline (Reading)
-- [ ] **Selection Proxy:** Wrap `ACAPI_Selection_Get` to return a list of GUID strings to Lua.
-- [ ] **Wall Geometry (The Memo):** - Convert `API_Element` (ID, Layer) to Lua table.
+## Phase 2: The Data Pipeline (Reading) ✓
+- [x] **Selection Proxy:** Wrap `ACAPI_Selection_Get` to return a list of GUID strings to Lua.
+- [x] **Wall Geometry (The Memo):** Convert `API_Element` (ID, Layer) to Lua table.
     - Convert `API_ElementMemo.coords` (Handle) to indexed Lua table `{ {x1, y1}, {x2, y2} ... }`.
-- [ ] **Opening Extraction:** Extract doors/windows from `API_ElementMemo` to detect layout voids.
+- [x] **Opening Extraction:** Extract doors/windows from `API_ElementMemo` via `BMGetPtrSize` (not null-sentinel).
 
 ## Phase 2.5: Extending Reading Functionality and Fixes
 - [ ] **Add more Object Types** to the reading functionality
   - Skim through PolygonReducer code and get object types that PolygonReducer handles
-	- Try to include any data type / function
-- [ ] **Write new Lua Scripts** to demonstrate 
-- [ ] **Write Defaults to Registry**
-- [ ] **Remote Debugging Bridge:** - Integrate `mobdebug` or `LuaPanda` support for remote IDE attachment.
+  - Try to include any data type / function
+- [ ] **Write new Lua Scripts** to demonstrate reading of multiple object types
+- [ ] **Write Defaults to Registry** (persist last script path, window size/pos, etc.)
+- [ ] **Remote Debugging Bridge:** Integrate `mobdebug` or `LuaPanda` support for remote IDE attachment.
     - Implement a "Wait for Debugger" flag in the C++ host to allow breakpoint synchronization before script execution.
 - [ ] Convenience fixes
-		- `ArchiLua` name should be changed to `_ArchiLua` only when debugging (first item on addons list, easier to find)
-		- ArchiLua should be loaded only when the menuitem is clicked (no need to reload always)
+  - `ArchiLua` name → `_ArchiLua` prefix when debugging (appears first in add‑ons list)
+  - `APIAddon_Normal` lifecycle already done — add-on loads on menu click, unloads after dialog closes
 
 ## Phase 3: The Action (Writing)
 - [ ] **Object Finder:** Search Library Part by name (`m_Viapanel_Wallpanel`) and return its `LibIndex`.

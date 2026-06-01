@@ -9,6 +9,7 @@ extern "C" {
 #include <string>
 
 #include "../Console/LuaConsole.hpp"
+#include "../API/APIModule.hpp"
 
 namespace ArchiLua {
 
@@ -28,6 +29,7 @@ public:
         luaL_openlibs(L);
 
         LuaConsole::Register(L);
+        APIModule::Register(L);
     }
 
     void ExecuteScript(const std::string& relativePath)

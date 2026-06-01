@@ -12,17 +12,17 @@
 }
 
 'GDLG'  LUA_RUNNER_DIALOG  Modal  0  0  400  100  "ArchiLua Script Runner" {
-/* [  1] */ Button               376   4   20   20  SmallPlain  ""
-/* [  2] */ LeftText              8   8   50   20  SmallPlain vCenter  "Script:"
-/* [  3] */ TextEdit              62   8  270   20  SmallPlain  255
-/* [  4] */ Button               336   8   30   20  SmallPlain  "..."
-/* [  5] */ Button               150  46  100   24  SmallPlain  "Run"
+/* [  1] */ Button               150  46  100   24  SmallPlain  "Run"
+/* [  2] */ Button               376   4   20   20  SmallPlain  ""
+/* [  3] */ LeftText               8   8   50   20  SmallPlain vCenter  "Script:"
+/* [  4] */ TextEdit              62   8  270   20  SmallPlain  255
+/* [  5] */ Button               336   8   30   20  SmallPlain  "..."
 }
 
 'DLGH'  LUA_RUNNER_DIALOG  DLG_LuaRunnerDialog {
-1 "Close window"                                    DG_OK
-2 "Static label: Script:"                           LeftText_Script
-3 "Path to the Lua script to execute"               TextEdit_ScriptPath
-4 "Browse for a Lua script file"                    Button_Browse
-5 "Run the selected Lua script"                     Button_Run
+1 "Run the selected Lua script"                     DG_OK
+2 "Cancel"                                    			DG_CANCEL
+3 "Static label: Script:"                           Text_ScriptLabel
+4 "Path to the Lua script to execute"               TextEdit_ScriptPath
+5 "Browse for a Lua script file"                    Button_Browse
 }

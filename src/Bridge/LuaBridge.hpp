@@ -32,29 +32,44 @@ public:
         APIModule::Register(L);
     }
 
-    void ExecuteScript(const std::string& relativePath)
+    void ExecuteScript(const std::string& path)
     {
         if (!L)
             Init();
 
-        IO::Location ownLoc;
-        if (ACAPI_GetOwnLocation(&ownLoc) != NoError)
-            return;
-        ownLoc.DeleteLastLocalName();
+        lastScriptPath = path;
 
-        GS::UniString baseStr;
-        ownLoc.ToPath(&baseStr);
-        baseStr.Append("\\");
-        baseStr.Append(relativePath.c_str());
+        GS::UniString fullPath;
+        if (path.size() >= 2 && path[1] == ':') {
+            fullPath = path.c_str();
+        } else {
+            IO::Location ownLoc;
+            if (ACAPI_GetOwnLocation(&ownLoc) != NoError)
+                return;
+            ownLoc.DeleteLastLocalName();
 
-        if (luaL_dofile(L, baseStr.ToCStr().Get()) != LUA_OK) {
+            GS::UniString baseStr;
+            ownLoc.ToPath(&baseStr);
+            baseStr.Append("\\");
+            baseStr.Append(path.c_str());
+            fullPath = baseStr;
+        }
+
+        const char* cPath = fullPath.ToCStr().Get();
+        if (luaL_dofile(L, cPath) != LUA_OK) {
             const char* err = lua_tostring(L, -1);
             if (err) {
-                ACAPI_WriteReport(err, false);
+                ACAPI_WriteReport(err, true);
+            } else {
+                ACAPI_WriteReport("Script error (unknown)", true);
             }
             lua_pop(L, 1);
+        } else {
+            ACAPI_WriteReport("Script finished successfully (check Report window for output)", true);
         }
     }
+
+    const std::string& GetLastScriptPath() const { return lastScriptPath; }
 
     void Shutdown()
     {
@@ -68,6 +83,7 @@ public:
 
 private:
     lua_State* L = nullptr;
+    std::string lastScriptPath;
 };
 
 } // namespace ArchiLua

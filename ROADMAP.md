@@ -19,6 +19,18 @@
     - Convert `API_ElementMemo.coords` (Handle) to indexed Lua table `{ {x1, y1}, {x2, y2} ... }`.
 - [ ] **Opening Extraction:** Extract doors/windows from `API_ElementMemo` to detect layout voids.
 
+## Phase 2.5: Extending Reading Functionality and Fixes
+- [ ] **Add more Object Types** to the reading functionality
+  - Skim through PolygonReducer code and get object types that PolygonReducer handles
+	- Try to include any data type / function
+- [ ] **Write new Lua Scripts** to demonstrate 
+- [ ] **Write Defaults to Registry**
+- [ ] **Remote Debugging Bridge:** - Integrate `mobdebug` or `LuaPanda` support for remote IDE attachment.
+    - Implement a "Wait for Debugger" flag in the C++ host to allow breakpoint synchronization before script execution.
+- [ ] Convenience fixes
+		- `ArchiLua` name should be changed to `_ArchiLua` only when debugging (first item on addons list, easier to find)
+		- ArchiLua should be loaded only when the menuitem is clicked (no need to reload always)
+
 ## Phase 3: The Action (Writing)
 - [ ] **Object Finder:** Search Library Part by name (`m_Viapanel_Wallpanel`) and return its `LibIndex`.
 - [ ] **Parameter Marshaling:** Map Lua tables `{ name = value }` to `API_AddParID` handles.

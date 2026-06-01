@@ -26,6 +26,8 @@ msbuild ArchiLua.sln /p:Configuration="Debug 27" /p:Platform=x64
 - **`lua_scripts/`** resolved at runtime via `ACAPI_GetOwnLocation` + `DeleteLastLocalName`, relative to add-on `.apx` path.
 - **DllMainEntry** (not DllMain), **FastCall** calling convention.
 - **Debug CRT** needs `ucrtd.lib;msvcrtd.lib;msvcprtd.lib` — not just `msvcrtd.lib`.
+- **`/FS` compiler flag** needed in Debug + Release to avoid C1041 PDB contention.
+- **`FTM::FileTypeManager`** requires a unique ID string (`"ArchiLua"`) — default constructor is private (singleton pattern).
 
 ## Structure
 

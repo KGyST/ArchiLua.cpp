@@ -9,34 +9,64 @@ namespace ArchiLua {
 
 LuaScriptDialog::LuaScriptDialog()
     : DG::ModalDialog(ACAPI_GetOwnResModule(), LUA_RUNNER_DIALOG, ACAPI_GetOwnResModule())
-    , closeButton(GetReference(), DG_OK)
+    , runButton(GetReference(), DG_OK)
+    , cancelButton(GetReference(), DG_CANCEL)
     , scriptPathEdit(GetReference(), TextEdit_ScriptPath)
     , browseButton(GetReference(), Button_Browse)
-    , runButton(GetReference(), Button_Run)
 {
+    Attach(*this);
     AttachToAllItems(*this);
-    scriptPathEdit.SetText("lua_scripts\\try_hello.lua");
+
+    const std::string& lastPath = GetBridge().GetLastScriptPath();
+    if (!lastPath.empty())
+        scriptPathEdit.SetText(GS::UniString(lastPath.c_str()));
 }
 
 LuaScriptDialog::~LuaScriptDialog()
 {
 }
 
+void LuaScriptDialog::PanelCloseRequested(const DG::PanelCloseRequestEvent& ev, bool* accepted)
+{
+    *accepted = true;
+}
+
 void LuaScriptDialog::ButtonClicked(const DG::ButtonClickEvent& ev)
 {
-    if (ev.GetSource() == &closeButton) {
-        PostCloseRequest(DG::ModalDialog::Accept);
-    } else if (ev.GetSource() == &browseButton) {
-        DG::FileDialog fileDlg(DG::FileDialog::OpenFile);
-        if (fileDlg.Invoke()) {
-            const IO::Location& sel = fileDlg.GetSelectedFile();
-            GS::UniString pathStr;
-            sel.ToPath(&pathStr);
-            scriptPathEdit.SetText(pathStr);
+    switch (ev.GetSource()->GetId()) {
+        case DG_CANCEL:
+            PostCloseRequest(DG::ModalDialog::Cancel);
+            break;
+
+        case Button_Browse:
+        {
+            FTM::FileTypeManager ftman("ArchiLua");
+            FTM::FileType luaFileType("Lua Scripts", "lua", 0, 0, 0);
+            FTM::TypeID luaType = FTM::FileTypeManager::SearchForType(luaFileType);
+            if (luaType == FTM::UnknownType)
+                luaType = ftman.AddType(luaFileType);
+
+            DG::FileDialog fileDlg(DG::FileDialog::OpenFile);
+            fileDlg.AddFilter(luaType, DG::FileDialog::DisplayExtensions);
+            if (fileDlg.Invoke()) {
+                const IO::Location& sel = fileDlg.GetSelectedFile();
+                GS::UniString pathStr;
+                sel.ToPath(&pathStr);
+                scriptPathEdit.SetText(pathStr);
+            }
+            break;
         }
-    } else if (ev.GetSource() == &runButton) {
-        GS::UniString path = scriptPathEdit.GetText();
-        GetBridge().ExecuteScript(path.ToCStr().Get());
+
+        case DG_OK:
+        {
+            GS::UniString path = scriptPathEdit.GetText();
+            if (path.IsEmpty()) {
+                ACAPI_WriteReport("No script file selected.", true);
+            } else {
+                GetBridge().ExecuteScript(path.ToCStr().Get());
+            }
+            break;
+        }
     }
 }
 

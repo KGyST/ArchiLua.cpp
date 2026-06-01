@@ -128,25 +128,21 @@ static int GetWall(lua_State* L)
     lua_createtable(L, 0, 2);
 
     if (memo.wallWindows != nullptr) {
-        lua_createtable(L, 0, 0);
-        int winIdx = 1;
-        API_Guid* wg = memo.wallWindows;
-        while (*wg != APINULLGuid) {
-            PushGuid(L, *wg);
-            lua_rawseti(L, -2, winIdx++);
-            ++wg;
+        GSSize nWindows = BMGetPtrSize(reinterpret_cast<GSPtr>(memo.wallWindows)) / sizeof(API_Guid);
+        lua_createtable(L, (int)nWindows, 0);
+        for (int i = 0; i < (int)nWindows; ++i) {
+            PushGuid(L, memo.wallWindows[i]);
+            lua_rawseti(L, -2, i + 1);
         }
         lua_setfield(L, -2, "windows");
     }
 
     if (memo.wallDoors != nullptr) {
-        lua_createtable(L, 0, 0);
-        int doorIdx = 1;
-        API_Guid* dg = memo.wallDoors;
-        while (*dg != APINULLGuid) {
-            PushGuid(L, *dg);
-            lua_rawseti(L, -2, doorIdx++);
-            ++dg;
+        GSSize nDoors = BMGetPtrSize(reinterpret_cast<GSPtr>(memo.wallDoors)) / sizeof(API_Guid);
+        lua_createtable(L, (int)nDoors, 0);
+        for (int i = 0; i < (int)nDoors; ++i) {
+            PushGuid(L, memo.wallDoors[i]);
+            lua_rawseti(L, -2, i + 1);
         }
         lua_setfield(L, -2, "doors");
     }

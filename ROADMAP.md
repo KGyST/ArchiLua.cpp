@@ -29,6 +29,8 @@
 - [x] Convenience fixes
   - `ArchiLua` name → `_ArchiLua` prefix when debugging (appears first in add‑ons list)
   - `APIAddon_Normal` lifecycle already done — add-on loads on menu click, unloads after dialog closes
+  - Pre-commit hook (`githooks/pre-commit`) runs clang-tidy on staged `Src/` files
+  - `generate-compile-commands.cmd` to regenerate the compilation database
 - [x] **Write Defaults to Registry** (persist last script path via Win32 registry helpers in Bridge)
 - [ ] **Remote Debugging Bridge:** Integrate `mobdebug` or `LuaPanda` support for remote IDE attachment.
     - Implement a "Wait for Debugger" flag in the C++ host to allow breakpoint synchronization before script execution.

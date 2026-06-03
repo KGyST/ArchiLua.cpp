@@ -50,6 +50,19 @@ msbuild ArchiLua.sln /p:Configuration="Debug 27" /p:Platform=x64
 - **`_CrtDbgReport` linker errors** → missing `ucrtd.lib` in debug link deps.
 - **Logger linker errors** → missing `DateTime.cpp` or `WinReg.cpp` in `ClCompile` group.
 
+## Pre-commit hook (clang-tidy)
+
+A pre-commit hook runs `clang-tidy` on staged `.cpp`/`.hpp` files in `Src/`:
+```bash
+# One-time setup:
+git config core.hooksPath githooks
+```
+The hook requires `compile_commands.json` at the project root (committed).  
+Regenerate it with `generate-compile-commands.cmd` when source files change.
+
+Clang 18 must be installed at `C:\Program Files\clang+llvm-18.1.8-x86_64-pc-windows-msvc`.  
+The hook sets `VCToolsInstallDir` to VS 2022 v17 (MSVC 14.29) for STL compatibility.
+
 ## Commands
 
 ```bash
@@ -57,3 +70,29 @@ git submodule update --init          # clone CommonLibs.cpp
 cmake -S deps -B deps/build          # re-generate deps
 msbuild ... /t:Clean                 # clean build outputs
 ```
+
+# Project Rules
+- Always consult /adr/ before making significant architectural changes.
+- If you implement any mock or stub, you MUST create a new ADR file in /docs/adr/ following the standard template.
+
+
+### ARCHITECTURAL DECISION LOGGING PROTOCOL (ADR)
+
+1. **Mandatory Documentation:** Significant technical decision must be documented in an ADR file.
+2. **Storage Location:** Save all files in the project root: `/adr/`.
+3. **Naming Convention:** Use `YYMMDDDD-short-description.md`. Example date format: 260601H, 260603Sze (H for Hétfő, Sze for Szerda: Hungarian weekdays) 
+4. **Logging Policy:** MUST be logged as a separate ADR:
+	- Any decision involving 'mocking' or 'stubbing' external dependencies
+	- Any decision that involves asking User for an explict decision (If User provides an explanation, that must be summarized.) 
+5. **Structure:**
+   # ADR: [Title]
+   - Status: [Accepted/Draft]
+   - Date: [YYYY-MM-DD]
+   - Context: [The technical challenge]
+   - Decision: [The proposed solution]
+		- Every offered/considered Alternative must be mentioned
+   - Pro/Con Analysis: [Strictly objective, critical assessment]
+		- Per Alternative
+   - Exit Strategy: [Applicable for mocks only]
+	 
+	

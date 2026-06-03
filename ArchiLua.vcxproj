@@ -26,6 +26,19 @@
     <ACVersion>27</ACVersion>
     <BuildType>Release</BuildType>
   </PropertyGroup>
+  <!-- Fallback defaults for IntelliSense (may not evaluate configuration conditions / local.props) -->
+  <PropertyGroup>
+    <ACVersion Condition="'$(ACVersion)'==''">27</ACVersion>
+    <BuildType Condition="'$(BuildType)'==''">Debug</BuildType>
+    <ACBuildSupport Condition="'$(ACBuildSupport)'==''">..\support\archicad-buildsupport</ACBuildSupport>
+    <CommonModules Condition="'$(CommonModules)'==''">CommonLibs.cpp</CommonModules>
+    <NatVisRoot Condition="'$(NatVisRoot)'==''">$(ACBuildSupport)\Debug_Visualizers\GSVisualStudioDebugVisualizers</NatVisRoot>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(ACVersion)'!=''">
+    <ACDevKit Condition="'$(ACDevKit)'==''">$(ACBuildSupport)\AC$(ACVersion)\API</ACDevKit>
+    <ACDevKitSupport Condition="'$(ACDevKitSupport)'==''">$(ACDevKit)\Support</ACDevKitSupport>
+    <ACDevKitModules Condition="'$(ACDevKitModules)'==''">$(ACDevKitSupport)\Modules</ACDevKitModules>
+  </PropertyGroup>
   <!-- ACVersion must be defined for local.props-->
   <Import Project="local.props" />
   <PropertyGroup Condition="'$(ACVersion)'=='27'" Label="Configuration">

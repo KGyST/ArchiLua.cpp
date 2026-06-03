@@ -5,14 +5,38 @@
       <UniqueIdentifier>{4FC737F1-C7A5-4376-A066-2A32D752A2FF}</UniqueIdentifier>
       <Extensions>cpp;c;cc;cxx;c++;cppm;ixx;def;odl;idl;hpj;bat;asm;asmx</Extensions>
     </Filter>
+    <Filter Include="Source Files\API">
+      <UniqueIdentifier>{A1234567-B890-4CDE-A123-456789ABCD00}</UniqueIdentifier>
+    </Filter>
     <Filter Include="Source Files\Bridge">
-      <UniqueIdentifier>{A1234567-B890-4CDE-A123-456789ABCDEF}</UniqueIdentifier>
+      <UniqueIdentifier>{A1234567-B890-4CDE-A123-456789ABCD01}</UniqueIdentifier>
     </Filter>
     <Filter Include="Source Files\Console">
-      <UniqueIdentifier>{B2345678-C901-4DEF-B234-567890ABCDEF}</UniqueIdentifier>
+      <UniqueIdentifier>{B2345678-C901-4DEF-B234-567890ABCD01}</UniqueIdentifier>
     </Filter>
     <Filter Include="Source Files\Gui">
-      <UniqueIdentifier>{C3456789-D012-4EFG-C345-678901ABCDEF}</UniqueIdentifier>
+      <UniqueIdentifier>{C3456789-D012-4EFG-C345-678901ABCD01}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Source Files\AC27">
+      <UniqueIdentifier>{D4567890-E123-4FGH-D456-789012ABCD01}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Source Files\CommonLibs">
+      <UniqueIdentifier>{E5678901-F234-4GHI-E567-890123ABCD01}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Source Files\CommonLibs\DateTime">
+      <UniqueIdentifier>{F6789012-3456-4HIJ-F678-901234ABCD01}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Source Files\CommonLibs\Logger">
+      <UniqueIdentifier>{A7890123-4567-4IJK-A789-012345ABCD01}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Source Files\CommonLibs\Utils">
+      <UniqueIdentifier>{B8901234-5678-4JKL-B890-123456ABCD01}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Source Files\CommonLibs\WinReg">
+      <UniqueIdentifier>{C9012345-6789-4KLM-C901-234567ABCD01}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Scripts">
+      <UniqueIdentifier>{D0123456-7890-4LMN-D012-345678ABCD01}</UniqueIdentifier>
     </Filter>
     <Filter Include="Resource Files">
       <UniqueIdentifier>{67DA6AB6-F800-4c08-8B7A-83BB121AAD01}</UniqueIdentifier>
@@ -26,17 +50,6 @@
     </Filter>
   </ItemGroup>
   <ItemGroup>
-    <CustomBuild Include="RFIX.WIN\$(ProjectName).rc2">
-      <Filter>Resource Files</Filter>
-    </CustomBuild>
-    <CustomBuild Include="RFIX\$(ProjectName)Fix.grc">
-      <Filter>Resource Files</Filter>
-    </CustomBuild>
-    <CustomBuild Include="RINT\$(ProjectName).grc">
-      <Filter>Resource Files</Filter>
-    </CustomBuild>
-  </ItemGroup>
-  <ItemGroup>
     <ClInclude Include="Src\APIEnvir.h">
       <Filter>Source Files</Filter>
     </ClInclude>
@@ -46,8 +59,8 @@
     <ClInclude Include="Src\ArchiLua_Resource.h">
       <Filter>Source Files</Filter>
     </ClInclude>
-    <ClInclude Include="Src\AC27\APICommon.h">
-      <Filter>Source Files</Filter>
+    <ClInclude Include="Src\API\APIModule.hpp">
+      <Filter>Source Files\API</Filter>
     </ClInclude>
     <ClInclude Include="Src\Bridge\LuaBridge.hpp">
       <Filter>Source Files\Bridge</Filter>
@@ -58,19 +71,77 @@
     <ClInclude Include="Src\Gui\LuaScriptDialog.hpp">
       <Filter>Source Files\Gui</Filter>
     </ClInclude>
+    <ClInclude Include="Src\AC27\APICommon.h">
+      <Filter>Source Files\AC27</Filter>
+    </ClInclude>
+    <ClInclude Include="$(CommonModules)\AC27.hpp">
+      <Filter>Source Files\CommonLibs</Filter>
+    </ClInclude>
+    <ClInclude Include="$(CommonModules)\DateTime\DateTime.hpp">
+      <Filter>Source Files\CommonLibs\DateTime</Filter>
+    </ClInclude>
+    <ClInclude Include="$(CommonModules)\Logger\Logger.hpp">
+      <Filter>Source Files\CommonLibs\Logger</Filter>
+    </ClInclude>
+    <ClInclude Include="$(CommonModules)\Logger\Loglevels.hpp">
+      <Filter>Source Files\CommonLibs\Logger</Filter>
+    </ClInclude>
+    <ClInclude Include="$(CommonModules)\Logger\LoglevelStrings.hpp">
+      <Filter>Source Files\CommonLibs\Logger</Filter>
+    </ClInclude>
+    <ClInclude Include="$(CommonModules)\Utils\StringsEnum.hpp">
+      <Filter>Source Files\CommonLibs\Utils</Filter>
+    </ClInclude>
+    <ClInclude Include="$(CommonModules)\Utils\Utils.hpp">
+      <Filter>Source Files\CommonLibs\Utils</Filter>
+    </ClInclude>
+    <ClInclude Include="$(CommonModules)\WinReg\WinReg.hpp">
+      <Filter>Source Files\CommonLibs\WinReg</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="Src\ArchiLua.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="Src\AC27\APICommon.c">
-      <Filter>Source Files</Filter>
-    </ClCompile>
     <ClCompile Include="Src\Gui\LuaScriptDialog.cpp">
       <Filter>Source Files\Gui</Filter>
     </ClCompile>
+    <ClCompile Include="Src\AC27\APICommon.c">
+      <Filter>Source Files\AC27</Filter>
+    </ClCompile>
+    <ClCompile Include="$(CommonModules)\Logger\Logger.cpp">
+      <Filter>Source Files\CommonLibs\Logger</Filter>
+    </ClCompile>
+    <ClCompile Include="$(CommonModules)\DateTime\DateTime.cpp">
+      <Filter>Source Files\CommonLibs\DateTime</Filter>
+    </ClCompile>
+    <ClCompile Include="$(CommonModules)\WinReg\WinReg.cpp">
+      <Filter>Source Files\CommonLibs\WinReg</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
+    <None Include="lua_scripts\*.lua">
+      <Filter>Scripts</Filter>
+    </None>
+  </ItemGroup>
+  <ItemGroup>
+    <CustomBuild Include="RFIX\$(ProjectName)Fix.grc">
+      <Filter>Resource Files</Filter>
+    </CustomBuild>
+    <CustomBuild Include="RINT\$(ProjectName).grc">
+      <Filter>Resource Files</Filter>
+    </CustomBuild>
+    <CustomBuild Include="RFIX.WIN\$(ProjectName).rc2">
+      <Filter>Resource Files</Filter>
+    </CustomBuild>
+  </ItemGroup>
+  <ItemGroup>
+    <Library Condition="'$(BuildType)'=='Debug'" Include="$(ACDevKitSupport)\Lib$(WinCorr)\ACAP_STATD.lib">
+      <Filter>Libraries</Filter>
+    </Library>
+    <Library Condition="'$(BuildType)'=='Release'" Include="$(ACDevKitSupport)\Lib$(WinCorr)\ACAP_STAT.lib">
+      <Filter>Libraries</Filter>
+    </Library>
     <Library Include="$(ACDevKitModules)\DGLib\Win\DGImp.lib">
       <Filter>Libraries</Filter>
     </Library>

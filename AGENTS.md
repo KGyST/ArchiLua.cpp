@@ -86,7 +86,7 @@ msbuild ... /t:Clean                 # clean build outputs
 4. **Logging Policy:** MUST be logged as a separate ADR:
 	- Any decision involving 'mocking' or 'stubbing' external dependencies
 	- Any decision that involves asking User for an explict decision (If User provides an explanation, that must be summarized.) 
-5. **Structure:**
+5. **Structure (use semantic line breaks — one sentence per line for readability):**
    # ADR: [Title]
    - Status: [Accepted/Draft]
    - Date: [YYYY-MM-DD]

@@ -79,7 +79,9 @@
       <BrowseInformationFile>$(IntDir)</BrowseInformationFile>
       <CallingConvention>FastCall</CallingConvention>
       <CompileAs>CompileAsCpp</CompileAs>
-      <!-- 4996: 'function' declared deprecated (POSIX names, CRT security warnings) -->
+      <!--
+        4996: 'function' declared deprecated (POSIX names, CRT security warnings)
+      -->
       <DisableSpecificWarnings>4996;%(DisableSpecificWarnings)</DisableSpecificWarnings>
       <TreatWChar_tAsBuiltInType>false</TreatWChar_tAsBuiltInType>
     </ClCompile>
@@ -105,7 +107,10 @@
       <RuntimeLibrary>MultiThreadedDebugDLL</RuntimeLibrary>
       <FunctionLevelLinking>true</FunctionLevelLinking>
       <BrowseInformation>false</BrowseInformation>
-      <!-- 4100: unreferenced formal parameter; 4189: local variable initialized but not referenced -->
+      <!--
+        4100: unreferenced formal parameter;
+        4189: local variable initialized but not referenced
+      -->
       <DisableSpecificWarnings>4100;4189;%(DisableSpecificWarnings)</DisableSpecificWarnings>
       <AdditionalOptions>/FS %(AdditionalOptions)</AdditionalOptions>
     </ClCompile>
@@ -122,7 +127,9 @@
       <PreprocessorDefinitions>NDEBUG;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <RuntimeLibrary>MultiThreadedDLL</RuntimeLibrary>
       <BrowseInformation>true</BrowseInformation>
-      <!-- 4239: nonstandard extension used (type conversion) — required by AC27 API callbacks -->
+      <!--
+        4239: nonstandard extension used (type conversion) — required by AC27 API callbacks
+      -->
       <DisableSpecificWarnings>4100;4189;4239;%(DisableSpecificWarnings)</DisableSpecificWarnings>
       <AdditionalOptions>/FS %(AdditionalOptions)</AdditionalOptions>
     </ClCompile>

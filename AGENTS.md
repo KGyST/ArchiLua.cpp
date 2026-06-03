@@ -32,8 +32,9 @@ msbuild ArchiLua.sln /p:Configuration="Debug 27" /p:Platform=x64
 ## Structure
 
 | Path | Purpose |
-|---|---|
+|---|---|---|
 | `src/Bridge/LuaBridge.hpp` | `Bridge` class: wraps `lua_State*`, `Init`/`ExecuteScript`/`Shutdown` |
+| `src/API/APIModule.hpp` | Lua API functions (`getsel`, `getwall`, `get`, `getpoly`) |
 | `src/Console/LuaConsole.hpp` | Overrides Lua `print()` → `ACAPI_WriteReport` |
 | `src/ArchiLua.cpp` | DLL entry, `CheckEnvironment`, `RegisterInterface`, `Initialize`, `MenuCommandHandler` |
 | `deps/CMakeLists.txt` | Lua 5.4.7 FetchContent, generates `ArchiLuaDeps.props` |
@@ -41,6 +42,8 @@ msbuild ArchiLua.sln /p:Configuration="Debug 27" /p:Platform=x64
 | `RFIX/ArchiLuaFix.grc` | Non-localized MDID resource (add-on ID: `0`, `4015391855`) |
 | `local.props` | Per-machine paths (`ACBuildSupport`, `CommonLibs.cpp`) |
 | `CommonLibs.cpp/` | Submodule: Logger, DateTime, WinReg, Utils, AC27.hpp |
+
+All headers are explicitly listed in `ClInclude` in `ArchiLua.vcxproj` so they appear in Visual Studio's Solution Explorer. When adding a new header, add it to the `ClInclude` group too.
 
 ## Common pitfalls
 

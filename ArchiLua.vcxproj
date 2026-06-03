@@ -147,7 +147,14 @@
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClInclude Include="$(CommonModules)\AC27.hpp" />
+    <ClInclude Include="$(CommonModules)\DateTime\DateTime.hpp" />
     <ClInclude Include="$(CommonModules)\Logger\Logger.hpp" />
+    <ClInclude Include="$(CommonModules)\Logger\Loglevels.hpp" />
+    <ClInclude Include="$(CommonModules)\Logger\LoglevelStrings.hpp" />
+    <ClInclude Include="$(CommonModules)\Utils\StringsEnum.hpp" />
+    <ClInclude Include="$(CommonModules)\Utils\Utils.hpp" />
+    <ClInclude Include="$(CommonModules)\WinReg\WinReg.hpp" />
+    <ClInclude Include="Src\API\APIModule.hpp" />
     <ClInclude Include="Src\APIEnvir.h" />
     <ClInclude Include="Src\ArchiLua.hpp" />
     <ClInclude Include="Src\ArchiLua_Resource.h" />

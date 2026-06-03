@@ -130,7 +130,7 @@
     <Link>
       <GenerateDebugInformation>true</GenerateDebugInformation>
       <ProgramDatabaseFile>$(OutDir)$(ProjectName).pdb</ProgramDatabaseFile>
-      <AdditionalDependencies>ucrtd.lib;msvcrtd.lib;msvcprtd.lib;$(LuaLibName).lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>ucrtd.lib;msvcrtd.lib;msvcprtd.lib;$(LuaLibName).lib;ws2_32.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(BuildType)'=='Release'">
@@ -149,7 +149,7 @@
     <Link>
       <OptimizeReferences>true</OptimizeReferences>
       <EnableCOMDATFolding>true</EnableCOMDATFolding>
-      <AdditionalDependencies>ucrt.lib;msvcrt.lib;msvcprt.lib;$(LuaLibName).lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>ucrt.lib;msvcrt.lib;msvcprt.lib;$(LuaLibName).lib;ws2_32.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(ACVersion)'=='27'">
@@ -173,11 +173,13 @@
     <ClInclude Include="Src\ArchiLua_Resource.h" />
     <ClInclude Include="Src\AC27\APICommon.h" />
     <ClInclude Include="Src\Bridge\LuaBridge.hpp" />
+    <ClInclude Include="Src\Bridge\LuaDebugger.hpp" />
     <ClInclude Include="Src\Console\LuaConsole.hpp" />
     <ClInclude Include="Src\Gui\LuaScriptDialog.hpp" />
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="Src\ArchiLua.cpp" />
+    <ClCompile Include="Src\Bridge\LuaDebugger.cpp" />
     <ClCompile Include="Src\Gui\LuaScriptDialog.cpp" />
     <ClCompile Include="Src\AC27\APICommon.c" />
     <ClCompile Include="$(CommonModules)\Logger\Logger.cpp" />

@@ -10,6 +10,8 @@ extern "C" {
 
 #include "../Console/LuaConsole.hpp"
 #include "../API/APIModule.hpp"
+#include "../ArchiLua.hpp"
+#include "LuaDebugger.hpp"
 
 namespace ArchiLua {
 
@@ -28,7 +30,16 @@ public:
         L = luaL_newstate();
         luaL_openlibs(L);
 
-        LuaConsole::Register(L);
+        // Start DAP server (always listening, connects on demand)
+        m_debugger.Start(L);
+
+        // Pass a callback so Lua print() also forwards to DAP
+        LuaConsole::Register(L, [](const char* s) {
+            Bridge& b = ArchiLua::GetBridge();
+            if (b.m_debugger.HasClient())
+                b.m_debugger.SendOutput(s);
+        });
+
         APIModule::Register(L);
 
         LoadLastScriptPath();
@@ -59,7 +70,27 @@ public:
         }
 
         const char* cPath = fullPath.ToCStr().Get();
-        if (luaL_dofile(L, cPath) != LUA_OK) {
+
+        // Load file as a function (allows setting debug hook before execution)
+        if (luaL_loadfile(L, cPath) != LUA_OK) {
+            const char* err = lua_tostring(L, -1);
+            if (err) {
+                ACAPI_WriteReport(err, true);
+            } else {
+                ACAPI_WriteReport("Script compile error", true);
+            }
+            lua_pop(L, 1);
+            return;
+        }
+
+        // If a DAP client is attached, set the debug hook and request initial pause
+        if (m_debugger.HasClient()) {
+            lua_sethook(L, LuaDebugger::DebugHook, LUA_MASKLINE, 0);
+            m_debugger.NotifyRunStarting();
+        }
+
+        // Execute the function on the stack
+        if (lua_pcall(L, 0, 0, 0) != LUA_OK) {
             const char* err = lua_tostring(L, -1);
             if (err) {
                 ACAPI_WriteReport(err, true);
@@ -70,12 +101,17 @@ public:
         } else {
             ACAPI_WriteReport("Script finished successfully (check Report window for output)", true);
         }
+
+        // Clean up debug hook
+        lua_sethook(L, nullptr, 0, 0);
+        m_debugger.NotifyRunEnded();
     }
 
     const std::string& GetLastScriptPath() const { return lastScriptPath; }
 
     void Shutdown()
     {
+        m_debugger.Stop();
         if (L) {
             lua_close(L);
             L = nullptr;
@@ -83,6 +119,9 @@ public:
     }
 
     lua_State* State() { return L; }
+
+    // Exposed so LuaConsole callback can forward print() to DAP
+    LuaDebugger m_debugger;
 
 private:
     lua_State* L = nullptr;

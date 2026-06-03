@@ -34,6 +34,7 @@ msbuild ArchiLua.sln /p:Configuration="Debug 27" /p:Platform=x64
 | Path | Purpose |
 |---|---|---|
 | `src/Bridge/LuaBridge.hpp` | `Bridge` class: wraps `lua_State*`, `Init`/`ExecuteScript`/`Shutdown` |
+| `src/Bridge/LuaDebugger.hpp` `.cpp` | DAP server: TCP listener, JSON/DAP protocol, Lua debug hook |
 | `src/API/APIModule.hpp` | Lua API functions (`getsel`, `getwall`, `get`, `getpoly`, `getparams`) |
 | `src/Console/LuaConsole.hpp` | Overrides Lua `print()` → `ACAPI_WriteReport` |
 | `src/ArchiLua.cpp` | DLL entry, `CheckEnvironment`, `RegisterInterface`, `Initialize`, `MenuCommandHandler` |
@@ -52,6 +53,8 @@ All headers are explicitly listed in `ClInclude` in `ArchiLua.vcxproj` so they a
 - **`LLs` / `C2614` template errors** → sol2 was accidentally re-included; remove it.
 - **`_CrtDbgReport` linker errors** → missing `ucrtd.lib` in debug link deps.
 - **Logger linker errors** → missing `DateTime.cpp` or `WinReg.cpp` in `ClCompile` group.
+- **DAP/ws2_32.lib linker errors** → `ws2_32.lib` must be linked in both Debug and Release (already in vcxproj).
+- **DAP not connecting** → check firewall or ensure no other process uses port 4711. Start ArchiCAD before attaching VS Code debugger.
 
 ## Pre-commit hook (clang-tidy)
 

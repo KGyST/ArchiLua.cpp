@@ -65,6 +65,9 @@
     <ClInclude Include="Src\Bridge\LuaBridge.hpp">
       <Filter>Source Files\Bridge</Filter>
     </ClInclude>
+    <ClInclude Include="Src\Bridge\LuaDebugger.hpp">
+      <Filter>Source Files\Bridge</Filter>
+    </ClInclude>
     <ClInclude Include="Src\Console\LuaConsole.hpp">
       <Filter>Source Files\Console</Filter>
     </ClInclude>
@@ -102,6 +105,9 @@
   <ItemGroup>
     <ClCompile Include="Src\ArchiLua.cpp">
       <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="Src\Bridge\LuaDebugger.cpp">
+      <Filter>Source Files\Bridge</Filter>
     </ClCompile>
     <ClCompile Include="Src\Gui\LuaScriptDialog.cpp">
       <Filter>Source Files\Gui</Filter>

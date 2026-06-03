@@ -34,7 +34,7 @@
 - [x] **Write Defaults to Registry** (persist last script path via Win32 registry helpers in Bridge)
 - [x] **ADR: Type-Name Mapping Strategy** — document decision to keep C++ switch (compile-time safe) for type→name mapping; add `acapi.getparams()` for generic GDL parameter access
 - [x] **Generic Parameter Access** — `acapi.getparams(guid)` reads all GDL parameters for any library-part-based element (objects, doors, windows, columns, beams, zones)
-- [ ] **Remote Debugging Bridge:** Integrate `mobdebug` or `LuaPanda` support for remote IDE attachment.
+- [x] **Debug Adapter Protocol:** Integrate Debug Adapter Protocol for remote IDE attachment.
 		
 ## Phase 3: The Action (Writing)
 - [ ] **Object Finder:** Search Library Part by name (`m_Viapanel_Wallpanel`) and return its `LibIndex`.

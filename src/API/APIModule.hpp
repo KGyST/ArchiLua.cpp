@@ -264,6 +264,110 @@ static int GetPoly(lua_State* L)
     return 1;
 }
 
+static int GetParams(lua_State* L)
+{
+    const char* guidStr = lua_tostring(L, 1);
+    if (!guidStr) {
+        lua_pushnil(L);
+        return 1;
+    }
+
+    API_Guid guid = APIGuidFromString(guidStr);
+
+    API_Element elem;
+    BNZeroMemory(&elem, sizeof(elem));
+    elem.header.guid = guid;
+    if (ACAPI_Element_Get(&elem) != NoError) {
+        lua_pushnil(L);
+        return 1;
+    }
+
+    Int32 libInd = 0;
+    switch (elem.header.type.typeID) {
+        case API_ObjectID:   libInd = elem.object.libInd;         break;
+        case API_WindowID:   libInd = elem.window.openingBase.libInd;  break;
+        case API_DoorID:     libInd = elem.door.openingBase.libInd;   break;
+        case API_SkylightID: libInd = elem.skylight.openingBase.libInd; break;
+        case API_LampID:     libInd = elem.lamp.libInd;           break;
+        case API_ZoneID:     libInd = elem.zone.libInd;           break;
+        default: break;
+    }
+
+    if (libInd == 0) {
+        lua_pushnil(L);
+        return 1;
+    }
+
+    API_ParamOwnerType paramOwner;
+    BNZeroMemory(&paramOwner, sizeof(paramOwner));
+    paramOwner.libInd = libInd;
+
+    GSErrCode err = ACAPI_LibraryPart_OpenParameters(&paramOwner);
+    if (err != NoError) {
+        lua_pushnil(L);
+        return 1;
+    }
+
+    API_GetParamsType getParams;
+    BNZeroMemory(&getParams, sizeof(getParams));
+    err = ACAPI_LibraryPart_GetActParameters(&getParams);
+    if (err != NoError || getParams.params == nullptr) {
+        ACAPI_LibraryPart_CloseParameters();
+        lua_pushnil(L);
+        return 1;
+    }
+
+    UInt32 nParams = (UInt32)(BMGetHandleSize((GSHandle)getParams.params) / sizeof(API_AddParType));
+    lua_createtable(L, 0, (int)nParams);
+
+    for (UInt32 i = 0; i < nParams; ++i) {
+        const API_AddParType& par = (*getParams.params)[i];
+
+        if (par.typeMod != API_ParSimple)
+            continue;
+
+        switch (par.typeID) {
+            case APIParT_Integer:
+            case APIParT_Length:
+            case APIParT_Angle:
+            case APIParT_RealNum:
+            case APIParT_Intens:
+                lua_pushnumber(L, par.value.real);
+                break;
+            case APIParT_LightSw:
+            case APIParT_Boolean:
+                lua_pushboolean(L, par.value.real != 0.0);
+                break;
+            case APIParT_CString:
+            {
+                int wlen = 0;
+                while (wlen < API_UAddParStrLen && par.value.uStr[wlen] != 0)
+                    ++wlen;
+                if (wlen > 0) {
+                    int mlen = WideCharToMultiByte(CP_UTF8, 0, (LPCWCH)par.value.uStr, wlen, nullptr, 0, nullptr, nullptr);
+                    if (mlen > 0) {
+                        std::string s(mlen, '\0');
+                        WideCharToMultiByte(CP_UTF8, 0, (LPCWCH)par.value.uStr, wlen, &s[0], mlen, nullptr, nullptr);
+                        lua_pushstring(L, s.c_str());
+                    } else {
+                        continue;
+                    }
+                } else {
+                    continue;
+                }
+                break;
+            }
+            default:
+                continue;
+        }
+        lua_setfield(L, -2, par.name);
+    }
+
+    ACAPI_DisposeAddParHdl(&getParams.params);
+    ACAPI_LibraryPart_CloseParameters();
+    return 1;
+}
+
 inline void Register(lua_State* L)
 {
     lua_newtable(L);
@@ -279,6 +383,9 @@ inline void Register(lua_State* L)
 
     lua_pushcfunction(L, GetPoly);
     lua_setfield(L, -2, "getpoly");
+
+    lua_pushcfunction(L, GetParams);
+    lua_setfield(L, -2, "getparams");
 
     lua_setglobal(L, "acapi");
 }

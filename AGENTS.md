@@ -34,7 +34,7 @@ msbuild ArchiLua.sln /p:Configuration="Debug 27" /p:Platform=x64
 | Path | Purpose |
 |---|---|---|
 | `src/Bridge/LuaBridge.hpp` | `Bridge` class: wraps `lua_State*`, `Init`/`ExecuteScript`/`Shutdown` |
-| `src/API/APIModule.hpp` | Lua API functions (`getsel`, `getwall`, `get`, `getpoly`) |
+| `src/API/APIModule.hpp` | Lua API functions (`getsel`, `getwall`, `get`, `getpoly`, `getparams`) |
 | `src/Console/LuaConsole.hpp` | Overrides Lua `print()` → `ACAPI_WriteReport` |
 | `src/ArchiLua.cpp` | DLL entry, `CheckEnvironment`, `RegisterInterface`, `Initialize`, `MenuCommandHandler` |
 | `deps/CMakeLists.txt` | Lua 5.4.7 FetchContent, generates `ArchiLuaDeps.props` |
@@ -77,7 +77,6 @@ msbuild ... /t:Clean                 # clean build outputs
 # Project Rules
 - Always consult /adr/ before making significant architectural changes.
 - If you implement any mock or stub, you MUST create a new ADR file in /docs/adr/ following the standard template.
-
 
 ### ARCHITECTURAL DECISION LOGGING PROTOCOL (ADR)
 

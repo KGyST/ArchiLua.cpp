@@ -19,7 +19,7 @@
     - Convert `API_ElementMemo.coords` (Handle) to indexed Lua table `{ {x1, y1}, {x2, y2} ... }`.
 - [x] **Opening Extraction:** Extract doors/windows from `API_ElementMemo` via `BMGetPtrSize` (not null-sentinel).
 
-## Phase 2.5: Extending Reading Functionality and Fixes
+## Phase 2.5: Extending Reading Functionality and Fixes ✓
 - [x] **Add more Object Types** to the reading functionality
   - Generic `acapi.get(guid)` returns guid, layer, typeName + polygon coords for walls/slabs
   - `acapi.getpoly(guid)` returns raw polygon vertex array for any element with a polygon
@@ -32,8 +32,9 @@
   - Pre-commit hook (`githooks/pre-commit`) runs clang-tidy on staged `Src/` files
   - `generate-compile-commands.cmd` to regenerate the compilation database
 - [x] **Write Defaults to Registry** (persist last script path via Win32 registry helpers in Bridge)
+- [x] **ADR: Type-Name Mapping Strategy** — document decision to keep C++ switch (compile-time safe) for type→name mapping; add `acapi.getparams()` for generic GDL parameter access
+- [x] **Generic Parameter Access** — `acapi.getparams(guid)` reads all GDL parameters for any library-part-based element (objects, doors, windows, columns, beams, zones)
 - [ ] **Remote Debugging Bridge:** Integrate `mobdebug` or `LuaPanda` support for remote IDE attachment.
-    - Implement a "Wait for Debugger" flag in the C++ host to allow breakpoint synchronization before script execution.
 		
 ## Phase 3: The Action (Writing)
 - [ ] **Object Finder:** Search Library Part by name (`m_Viapanel_Wallpanel`) and return its `LibIndex`.

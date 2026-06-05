@@ -625,14 +625,11 @@ void LuaDebugger::OnStackTrace(int seq, const Json&) {
         const char* src = ar.source;
         if (src && src[0] == '@') ++src;
 
-        int ref = m_varRef++;
-
         frames += "{\"id\":" + std::to_string(depth) +
             ",\"name\":" + jsonStr(ar.name ? ar.name : "<anonymous>") +
             ",\"line\":" + std::to_string(ar.currentline) +
             ",\"column\":0" +
-            ",\"source\":{\"path\":" + jsonStr(src ? src : "?") +
-            ",\"sourceReference\":" + std::to_string(ref) + "}}";
+            ",\"source\":{\"path\":" + jsonStr(src ? src : "?") + "}}";
         ++depth;
     }
     SendResponse(seq, "stackTrace", "\"stackFrames\":[" + frames + "],\"totalFrames\":" + std::to_string(depth));

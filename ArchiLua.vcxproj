@@ -131,6 +131,7 @@
       <GenerateDebugInformation>true</GenerateDebugInformation>
       <ProgramDatabaseFile>$(OutDir)$(ProjectName).pdb</ProgramDatabaseFile>
       <AdditionalDependencies>ucrtd.lib;msvcrtd.lib;msvcprtd.lib;$(LuaLibName).lib;ws2_32.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalOptions>/ignore:4099 %(AdditionalOptions)</AdditionalOptions>
     </Link>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(BuildType)'=='Release'">
@@ -150,6 +151,7 @@
       <OptimizeReferences>true</OptimizeReferences>
       <EnableCOMDATFolding>true</EnableCOMDATFolding>
       <AdditionalDependencies>ucrt.lib;msvcrt.lib;msvcprt.lib;$(LuaLibName).lib;ws2_32.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalOptions>/ignore:4099 %(AdditionalOptions)</AdditionalOptions>
     </Link>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(ACVersion)'=='27'">
@@ -240,7 +242,9 @@
     </Library>
   </ItemGroup>
   <ItemGroup>
-    <None Include="lua_scripts\*.lua" />
+    <None Include="lua_scripts\try_hello.lua" />
+    <None Include="lua_scripts\try_selection.lua" />
+    <None Include="lua_scripts\try_wall_read.lua" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

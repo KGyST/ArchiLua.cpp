@@ -78,13 +78,13 @@ msbuild ... /t:Clean                 # clean build outputs
 ```
 
 # Project Rules
-- Always consult /adr/ before making significant architectural changes.
-- If you implement any mock or stub, you MUST create a new ADR file in /docs/adr/ following the standard template.
+- Always consult `Architectural Decision Records/` before making significant architectural changes.
+- If you implement any mock or stub, you MUST create a new ADR file in `Architectural Decision Records/` following the standard template.
 
 ### ARCHITECTURAL DECISION LOGGING PROTOCOL (ADR)
 
 1. **Mandatory Documentation:** Significant technical decision must be documented in an ADR file.
-2. **Storage Location:** Save all files in the project root: `/adr/`.
+2. **Storage Location:** Save all files in the project root: `Architectural Decision Records/`.
 3. **Naming Convention:** Use `YYMMDDDD-short-description.md`. Example date format: 260601H, 260603Sze (H for Hétfő, Sze for Szerda: Hungarian weekdays) 
 4. **Logging Policy:** MUST be logged as a separate ADR:
 	- Any decision involving 'mocking' or 'stubbing' external dependencies

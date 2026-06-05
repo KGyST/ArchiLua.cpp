@@ -88,6 +88,9 @@ GSErrCode __ACENV_CALL Initialize(void)
     if (err != NoError)
         DBPrintf("ArchiLua::Initialize() ACAPI_Install_MenuHandler failed\n");
 
+    // Start Lua state + DAP server so VSCodium can attach before dialog opens
+    GetBridge().Init();
+
     return err;
 }
 

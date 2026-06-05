@@ -1,0 +1,13 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Attach to ArchiLua DAP",
+            "type": "node",
+            "request": "attach",
+            "debugServer": 4711,
+            "sourceRoot": "${workspaceFolder}",
+            "stopOnEntry": true
+        }
+    ]
+}

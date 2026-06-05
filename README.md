@@ -2,11 +2,11 @@ ArchiLua is a Lua interpreter embedded into an ArchiCAD plugin.
 
 # ArchiLua
 
-ArchiCAD API <-> Lua 5.4 bridge using `sol2`.
+ArchiCAD API <-> Lua 5.4 bridge (raw C API).
 
 ## Core Setup
 * **ArchiCAD API version** ArchiCAD SE 2024 (ArchiCAD 27)
-* **Tech:** C++17, sol2 (header-only), Lua 5.4.
+* **Tech:** C++17, raw Lua C API, Lua 5.4.
 * **Architecture:** In-process embedding. No external Python runtime dependencies.
 
 ## MVP Scope
@@ -15,7 +15,7 @@ ArchiCAD API <-> Lua 5.4 bridge using `sol2`.
 * **Memory:** Manual GC management (`collectgarbage("stop/collect")`) during ACAPI transactions.
 
 ## Project Structure
-* `/src`: C++ Wrappers (sol2) & ACAPI interfaces.
+* `/src`: C++ bridge (raw Lua C API) & ACAPI interfaces.
 * `/scripts`: `try_*.lua` - Playful logic for panel distribution.
 
 ## Workflow

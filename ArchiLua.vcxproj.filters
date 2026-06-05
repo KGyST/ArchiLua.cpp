@@ -126,7 +126,13 @@
     </ClCompile>
   </ItemGroup>
   <ItemGroup>
-    <None Include="lua_scripts\*.lua">
+    <None Include="lua_scripts\try_hello.lua">
+      <Filter>Scripts</Filter>
+    </None>
+    <None Include="lua_scripts\try_selection.lua">
+      <Filter>Scripts</Filter>
+    </None>
+    <None Include="lua_scripts\try_wall_read.lua">
       <Filter>Scripts</Filter>
     </None>
   </ItemGroup>

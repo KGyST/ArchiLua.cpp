@@ -1,0 +1,8 @@
+{
+    "Lua.runtime.version": "Lua 5.4",
+    "Lua.workspace.ignoreDir": [],
+    "Lua.diagnostics.globals": [
+        "acapi"
+    ],
+    "Lua.workspace.maxPreLoad": 2048
+}

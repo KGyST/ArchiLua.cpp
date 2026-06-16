@@ -44,7 +44,18 @@
 - [x] **Parameter Writing:** `acapi.setparams(guid, {name=value})` writes GDL parameters via `ACAPI_Element_GetMemo(APIMemoMask_AddPars)` + `ACAPI_Element_Change(APIMemoMask_AddPars)` pattern.
 - [x] **Object Finder:** `acapi.findobject(name)` searches Library Part by name via `ACAPI_LibraryPart_Search`, returns `libInd` + display name.
 - [x] **Placement:** `acapi.create(libInd, position, params)` wraps `ACAPI_Element_Create` with optional initial GDL parameter overrides.
-- [ ] **GC Safety:** `collectgarbage("stop")` before C API calls inside undoable commands to prevent GC during ACAPI operations.
+
+## Phase 3.5: Extending Command and Element List
+- [ ] **Create Objects from Scratch:** (Simplest possible) Walls
+  - Advancing by creating polygonal walls
+	- Extending wall parametrization
+- [ ] **Doors and Windows:** into the (selected or active) wall, taking care of Wall side and Mirrored/Not mirrored
+	- Wall Addons
+- [ ] **Roofs and Slabs:** creation, analoguous to the Walls
+
+## Phase 3.5: Element Creation (Wall) ✓
+- [x] **Create Wall:** `acapi.addwall({begC={x,y}, endC={x,y}, height, thickness, layer})` — creates a new wall element via `ACAPI_Element_Create` wrapped in an undoable command.
+- [x] **Example Script:** `lua_scripts/try_add_wall.lua` demonstrates wall creation with full readback verification.
 
 ## Phase 4: Stability & Logic (The MVP)
 - [ ] **GC Safety:** C++ side `collectgarbage("stop")` before ACAPI calls and `collectgarbage("collect")` on scope exit.

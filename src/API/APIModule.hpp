@@ -825,6 +825,70 @@ static int CreateElement(lua_State* L)
     return 1;
 }
 
+static int AddWall(lua_State* L)
+{
+    if (!lua_istable(L, 1)) {
+        lua_pushnil(L);
+        lua_pushstring(L, "expected a table argument");
+        return 2;
+    }
+
+    API_Element elem;
+    BNZeroMemory(&elem, sizeof(elem));
+    elem.header.type.typeID = API_WallID;
+    elem.header.floorInd = 1;
+
+    // Read position
+    lua_getfield(L, 1, "begC");
+    if (lua_istable(L, -1)) {
+        lua_getfield(L, -1, "x");  elem.wall.begC.x = lua_isnumber(L, -1) ? lua_tonumber(L, -1) : 0; lua_pop(L, 1);
+        lua_getfield(L, -1, "y");  elem.wall.begC.y = lua_isnumber(L, -1) ? lua_tonumber(L, -1) : 0; lua_pop(L, 1);
+    }
+    lua_pop(L, 1);
+
+    lua_getfield(L, 1, "endC");
+    if (lua_istable(L, -1)) {
+        lua_getfield(L, -1, "x");  elem.wall.endC.x = lua_isnumber(L, -1) ? lua_tonumber(L, -1) : 5; lua_pop(L, 1);
+        lua_getfield(L, -1, "y");  elem.wall.endC.y = lua_isnumber(L, -1) ? lua_tonumber(L, -1) : 0; lua_pop(L, 1);
+    }
+    lua_pop(L, 1);
+
+    lua_getfield(L, 1, "height");
+    elem.wall.height = lua_isnumber(L, -1) ? lua_tonumber(L, -1) : 3.0;
+    lua_pop(L, 1);
+
+    lua_getfield(L, 1, "thickness");
+    elem.wall.thickness = lua_isnumber(L, -1) ? lua_tonumber(L, -1) : 0.25;
+    lua_pop(L, 1);
+
+    lua_getfield(L, 1, "layer");
+    if (lua_isinteger(L, -1))
+        elem.header.layer = ACAPI_CreateAttributeIndex((Int32)lua_tointeger(L, -1));
+    lua_pop(L, 1);
+
+    API_Guid createdGuid = APINULLGuid;
+    char errorMsg[256];
+    GSErrCode err = ACAPI_CallUndoableCommand("Create Wall", [&]() -> GSErrCode {
+        GSErrCode e = ACAPI_Element_Create(&elem, nullptr);
+        if (e != NoError) {
+            std::sprintf(errorMsg, "addwall failed: err=%d", (int)e);
+            return e;
+        }
+        createdGuid = elem.header.guid;
+        return NoError;
+    });
+
+    if (err != NoError || createdGuid == APINULLGuid) {
+        lua_pushnil(L);
+        lua_pushstring(L, errorMsg);
+        return 2;
+    }
+
+    GS::UniString guidStr = APIGuidToString(createdGuid);
+    lua_pushstring(L, guidStr.ToCStr().Get());
+    return 1;
+}
+
 inline void Register(lua_State* L)
 {
     lua_newtable(L);
@@ -864,6 +928,9 @@ inline void Register(lua_State* L)
 
     lua_pushcfunction(L, CreateElement);
     lua_setfield(L, -2, "create");
+
+    lua_pushcfunction(L, AddWall);
+    lua_setfield(L, -2, "addwall");
 
     lua_setglobal(L, "acapi");
 }

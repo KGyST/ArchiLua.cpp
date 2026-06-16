@@ -39,4 +39,4 @@ Without begin/end, each write call creates its own undo step.
 
 `local guid = acapi.create(libInd, {x, y}, { name = value, ... })` — create object instance with optional initial params.
 
-`local guid = acapi.addwall({ begC={x,y}, endC={x,y}, height, thickness, layer, storey })` — create a new wall element. `storey` defaults to 1 (first floor); also accepts `floorInd` as alias.
+`local guid = acapi.addwall({ begC={x,y}, endC={x,y}, height, thickness, layer, floor })` — create a new wall element. `floor` defaults to 1; also accepts `storey` as alias.

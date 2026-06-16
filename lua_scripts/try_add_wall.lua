@@ -6,7 +6,7 @@ local guid = acapi.addwall({
     height = 3.0,
     thickness = 0.25,
     layer = 1,
-    storey = 1
+    floor = 1
 })
 
 if guid then

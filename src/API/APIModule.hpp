@@ -865,11 +865,11 @@ static int AddWall(lua_State* L)
         elem.header.layer = ACAPI_CreateAttributeIndex((Int32)lua_tointeger(L, -1));
     lua_pop(L, 1);
 
-    // floorInd (storey); try "storey" first, fall back to "floorInd"
-    lua_getfield(L, 1, "storey");
+    // floor (matches ArchiCAD's naming); try "floor" first, fall back to "storey"
+    lua_getfield(L, 1, "floor");
     if (!lua_isinteger(L, -1)) {
         lua_pop(L, 1);
-        lua_getfield(L, 1, "floorInd");
+        lua_getfield(L, 1, "storey");
     }
     elem.header.floorInd = lua_isinteger(L, -1) ? (Int32)lua_tointeger(L, -1) : 1;
     lua_pop(L, 1);

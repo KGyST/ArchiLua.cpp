@@ -46,6 +46,14 @@ msbuild ArchiLua.sln /p:Configuration="Debug 27" /p:Platform=x64
 
 All headers are explicitly listed in `ClInclude` in `ArchiLua.vcxproj` so they appear in Visual Studio's Solution Explorer. When adding a new header, add it to the `ClInclude` group too.
 
+## Build automation
+
+When building, first check if ArchiCAD (process name `ArchiCAD`) is running:
+- **Not running** → build Debug, then notify user to start ArchiCAD and test.
+- **Running** → skip Debug (PDB locked). Build Release instead.
+
+This avoids C1041 PDB contention errors. Do NOT kill ArchiCAD automatically.
+
 ## Common pitfalls
 
 - **Missing deps/build/ArchiLuaDeps.props** → run cmake above first.
@@ -55,6 +63,7 @@ All headers are explicitly listed in `ClInclude` in `ArchiLua.vcxproj` so they a
 - **Logger linker errors** → missing `DateTime.cpp` or `WinReg.cpp` in `ClCompile` group.
 - **DAP/ws2_32.lib linker errors** → `ws2_32.lib` must be linked in both Debug and Release (already in vcxproj).
 - **DAP not connecting** → check firewall or ensure no other process uses port 4711. Start ArchiCAD before attaching VS Code debugger.
+- **`DG::Palette` modeless dialog** — `DG::Palette` does NOT have `Close()` or `PostCloseRequest()` (those are `DG::ModalDialog`-only). Use `SendCloseRequest()` (inherited from `ModelessBase`) to programmatically close. `PanelClosed` handler must `delete this` for self-deleting lifecycle. `DG::Palette` inherits from `ModelessBase`, not `DG::Panel`.
 
 ## Pre-commit hook (clang-tidy)
 

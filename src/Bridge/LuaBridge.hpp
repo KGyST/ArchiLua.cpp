@@ -13,6 +13,8 @@ extern "C" {
 #include "../ArchiLua.hpp"
 #include "LuaDebugger.hpp"
 
+#include "DGModule.hpp"
+
 namespace ArchiLua {
 
 class Bridge {
@@ -118,6 +120,19 @@ public:
         }
     }
 
+    void SetDialog(DG::Palette* dlg) { m_dialog = dlg; }
+    DG::Palette* GetDialog() const { return m_dialog; }
+
+    void CloseDialog()
+    {
+        if (m_dialog) {
+            void* hwnd = m_dialog->GetWindow();
+            if (hwnd)
+                ::DestroyWindow((HWND)hwnd);
+            m_dialog = nullptr;
+        }
+    }
+
     lua_State* State() { return L; }
 
     // Exposed so LuaConsole callback can forward print() to DAP
@@ -126,6 +141,7 @@ public:
 private:
     lua_State* L = nullptr;
     std::string lastScriptPath;
+    DG::Palette* m_dialog = nullptr;
 
     static const wchar_t* RegKey() { return L"Software\\GRAPHISOFT\\ArchiLua"; }
 

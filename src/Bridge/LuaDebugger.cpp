@@ -347,7 +347,7 @@ void LuaDebugger::Stop() {
         closesocket(m_listenSock);
         m_listenSock = -1;
     }
-    if (m_wakeEvent) {
+    if (m_wakeEvent) {    
         SetEvent(m_wakeEvent);
         CloseHandle(m_wakeEvent);
         m_wakeEvent = nullptr;
@@ -690,9 +690,8 @@ void LuaDebugger::OnVariables(int seq, const Json&) {
             lua_pop(m_L, 1);
             ++i;
         }
-        lua_pop(m_L, 1);
 
-        // Enumerate upvalues
+        // Enumerate upvalues (function still on stack from lua_getinfo)
         i = 1;
         while ((name = lua_getupvalue(m_L, -1, i)) != nullptr) {
             int t = lua_type(m_L, -1);
@@ -716,6 +715,8 @@ void LuaDebugger::OnVariables(int seq, const Json&) {
             lua_pop(m_L, 1);
             ++i;
         }
+        // Pop the function that was pushed by lua_getinfo
+        lua_pop(m_L, 1);
     }
 
     SendResponse(seq, "variables", "\"variables\":[" + vars + "]");

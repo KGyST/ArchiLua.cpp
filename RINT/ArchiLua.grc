@@ -11,7 +11,7 @@
 /* [  1] */    "Hello ArchiLua"
 }
 
-'GDLG'  LUA_RUNNER_DIALOG  Modal  0  0  400  100  "ArchiLua Script Runner" {
+'GDLG'  LUA_RUNNER_DIALOG  Palette  0  0  400  100  "ArchiLua Script Runner" {
 /* [  1] */ Button               150  46  100   24  SmallPlain  "Run"
 /* [  2] */ Button               376   4   20   20  SmallPlain  ""
 /* [  3] */ LeftText               8   8   50   20  SmallPlain vCenter  "Script:"

@@ -35,6 +35,7 @@
 - [x] **ADR: Type-Name Mapping Strategy** — document decision to keep C++ switch (compile-time safe) for type→name mapping; add `acapi.getparams()` for generic GDL parameter access
 - [x] **Generic Parameter Access** — `acapi.getparams(guid)` reads all GDL parameters for any library-part-based element (objects, doors, windows, columns, beams, zones)
 - [x] **Debug Adapter Protocol:** Integrate Debug Adapter Protocol for remote IDE attachment.
+- [x] **Modeless GUI:** Change now-modal GUI to modeless (`DG::Palette`). When "Run" button is pressed, the script runs in blocker mode (sync). 
 		
 ## Phase 3: The Action (Writing)
 - [ ] **Object Modification:** An already read object (like a wall) properties are to be modified and written back to the Archicad DB.
@@ -55,6 +56,7 @@
 ## Phase 5: Scaling (Post-MVP)
 - [ ] **GUI Integration:** `LUA-LIMGUI` (Dear ImGui) overlay for real-time parameter tweaking.
 - [ ] **Event Listeners:** Lua callbacks triggered by ArchiCAD element modification events.
+  - A wall modified can trigger a lua script again that was run on that wall.
 - [ ] **Automated Header Export:** Python/Clang-AST script to batch-generate Lua bindings for the full AC API.
 - [ ] **ArchiCAD 28/29:** support
 - [ ] **SamuTeszt Hook:** JSON dump of Lua tables before/after placement for regression testing.

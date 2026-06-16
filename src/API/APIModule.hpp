@@ -45,6 +45,7 @@ static const char* ElementTypeName(API_ElemTypeID typeID)
 static int GetSelection(lua_State* L)
 {
     API_SelectionInfo selInfo;
+    BNZeroMemory(&selInfo, sizeof(selInfo));
     GS::Array<API_Neig> selNeigs;
 
     GSErrCode err = ACAPI_Selection_Get(&selInfo, &selNeigs, true);
@@ -54,7 +55,9 @@ static int GetSelection(lua_State* L)
     }
     if (err != NoError) {
         lua_pushnil(L);
-        lua_pushstring(L, "ACAPI_Selection_Get failed");
+        char buf[64];
+        std::sprintf(buf, "ACAPI_Selection_Get failed: err=%d", (int)err);
+        lua_pushstring(L, buf);
         return 2;
     }
 

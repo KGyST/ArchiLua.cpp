@@ -38,8 +38,9 @@ static GSErrCode __ACENV_CALL MenuCommandHandler(const API_MenuParams* params)
     switch (params->menuItemRef.itemIndex) {
     case 1:
         {
-            LuaScriptDialog dlg;
-            dlg.Invoke();
+            auto* dlg = new LuaScriptDialog();
+            GetBridge().SetDialog(dlg);
+            dlg->Show();
         }
         break;
     }
@@ -91,6 +92,14 @@ GSErrCode __ACENV_CALL Initialize(void)
     // Start Lua state + DAP server so VSCodium can attach before dialog opens
     GetBridge().Init();
 
+    // Register modeless window so ArchiCAD doesn't unload the add-on while the palette is open
+    ACAPI_RegisterModelessWindow(LuaScriptDialog::PaletteRefId(),
+                                 LuaScriptDialog::PaletteAPIControlCallBack,
+                                 API_PalEnabled_FloorPlan + API_PalEnabled_Section + API_PalEnabled_Elevation +
+                                 API_PalEnabled_InteriorElevation + API_PalEnabled_3D +
+                                 API_PalEnabled_Detail + API_PalEnabled_Worksheet + API_PalEnabled_Layout,
+                                 GSGuid2APIGuid(LuaScriptDialog::PaletteGuid()));
+
     return err;
 }
 
@@ -99,5 +108,7 @@ GSErrCode __ACENV_CALL Initialize(void)
 //------------------------------------------------------
 GSErrCode __ACENV_CALL FreeData(void)
 {
+    ACAPI_UnregisterModelessWindow(LuaScriptDialog::PaletteRefId());
+    GetBridge().CloseDialog();
     return NoError;
 }

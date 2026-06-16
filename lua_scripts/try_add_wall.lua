@@ -1,6 +1,6 @@
-print("--- Phase 3.5: Adding a new wall ---")
+print("--- Phase 3.5: Adding a new wall with a window ---")
 
-local guid = acapi.addwall({
+local wallGuid = acapi.addwall({
     begC = { x = 0, y = 0 },
     endC = { x = 5, y = 0 },
     height = 3.0,
@@ -9,15 +9,26 @@ local guid = acapi.addwall({
     floor = 0
 })
 
-if guid then
-    print("Created wall: " .. guid)
+if wallGuid then
+    print("Created wall: " .. wallGuid)
 
-    local wall = acapi.getwall(guid)
+    local wall = acapi.getwall(wallGuid)
     if wall then
         print("  height: " .. wall.height)
         print("  thickness: " .. wall.thickness)
         print("  begC: (" .. wall.begC.x .. ", " .. wall.begC.y .. ")")
         print("  endC: (" .. wall.endC.x .. ", " .. wall.endC.y .. ")")
+
+        -- Place a window 2m from the start of the wall
+        local winGuid = acapi.addwindow(wallGuid, {
+            objLoc = 2.0,
+            height = 1.5,
+            width = 1.0,
+            sillHeight = 0.9
+        })
+        if winGuid then
+            print("  window: " .. winGuid .. " (at 2m)")
+        end
     end
 else
     print("Failed to create wall")

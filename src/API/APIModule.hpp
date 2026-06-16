@@ -897,6 +897,144 @@ static int AddWall(lua_State* L)
     return 1;
 }
 
+static int AddWindow(lua_State* L)
+{
+    const char* wallGuidStr = lua_tostring(L, 1);
+    if (!wallGuidStr || !lua_istable(L, 2)) {
+        lua_pushnil(L);
+        lua_pushstring(L, "expected a wall GUID and a params table");
+        return 2;
+    }
+
+    API_Guid wallGuid = APIGuidFromString(wallGuidStr);
+
+    // Verify wall exists and is straight
+    API_Element wallElem;
+    BNZeroMemory(&wallElem, sizeof(wallElem));
+    wallElem.header.guid = wallGuid;
+    GSErrCode err = ACAPI_Element_Get(&wallElem);
+    if (err != NoError || wallElem.header.type.typeID != API_WallID) {
+        lua_pushnil(L);
+        lua_pushstring(L, "wall not found");
+        return 2;
+    }
+    if (wallElem.wall.type == APIWtyp_Poly) {
+        lua_pushnil(L);
+        lua_pushstring(L, "cannot place window in polygonal wall");
+        return 2;
+    }
+
+    // Read params
+    lua_getfield(L, 2, "objLoc");
+    double objLoc = lua_isnumber(L, -1) ? lua_tonumber(L, -1) : 2.0;
+    lua_pop(L, 1);
+
+    lua_getfield(L, 2, "height");
+    double height = lua_isnumber(L, -1) ? lua_tonumber(L, -1) : 1.5;
+    lua_pop(L, 1);
+
+    lua_getfield(L, 2, "width");
+    double width = lua_isnumber(L, -1) ? lua_tonumber(L, -1) : 1.0;
+    lua_pop(L, 1);
+
+    lua_getfield(L, 2, "sillHeight");
+    double sillHeight = lua_isnumber(L, -1) ? lua_tonumber(L, -1) : 0.9;
+    lua_pop(L, 1);
+
+    // Set up window element
+    API_Element elem;
+    BNZeroMemory(&elem, sizeof(elem));
+    elem.header.type.typeID = API_WindowID;
+
+    API_ElementMemo memo;
+    BNZeroMemory(&memo, sizeof(memo));
+
+    API_SubElement marker;
+    BNZeroMemory(&marker, sizeof(marker));
+    marker.subType = APISubElement_MainMarker;
+
+    // Get defaults for window
+    err = ACAPI_Element_GetDefaultsExt(&elem, &memo, 1UL, &marker);
+    if (err != NoError) {
+        lua_pushnil(L);
+        lua_pushfstring(L, "GetDefaultsExt failed: err=%d", (int)err);
+        return 2;
+    }
+
+    // Get marker parent library part
+    API_LibPart libPart;
+    BNZeroMemory(&libPart, sizeof(libPart));
+    err = ACAPI_LibraryPart_GetMarkerParent(elem.header.type, libPart);
+    if (err != NoError) {
+        ACAPI_DisposeElemMemoHdls(&memo);
+        ACAPI_DisposeElemMemoHdls(&marker.memo);
+        lua_pushnil(L);
+        lua_pushfstring(L, "GetMarkerParent failed: err=%d", (int)err);
+        return 2;
+    }
+
+    err = ACAPI_LibraryPart_Search(&libPart, false, true);
+    if (err != NoError) {
+        ACAPI_DisposeElemMemoHdls(&memo);
+        ACAPI_DisposeElemMemoHdls(&marker.memo);
+        lua_pushnil(L);
+        lua_pushfstring(L, "LibraryPart_Search failed: err=%d", (int)err);
+        return 2;
+    }
+    delete libPart.location;
+
+    // Get marker params
+    double a, b;
+    Int32 addParNum;
+    API_AddParType** markAddPars = nullptr;
+    err = ACAPI_LibraryPart_GetParams(libPart.index, &a, &b, &addParNum, &markAddPars);
+    if (err != NoError) {
+        ACAPI_DisposeElemMemoHdls(&memo);
+        ACAPI_DisposeElemMemoHdls(&marker.memo);
+        lua_pushnil(L);
+        lua_pushfstring(L, "GetParams failed: err=%d", (int)err);
+        return 2;
+    }
+
+    marker.memo.params = markAddPars;
+    marker.subElem.object.pen = 166;
+    marker.subElem.object.useObjPens = true;
+
+    // Position on wall: objLoc is distance along wall from begC
+    elem.window.owner = wallGuid;
+    elem.window.objLoc = objLoc;
+    elem.window.openingBase.height = height;
+    elem.window.openingBase.width = width;
+    elem.window.lower = sillHeight;
+
+    // Create
+    char errorMsg[256];
+    API_Guid createdGuid = APINULLGuid;
+
+    err = ACAPI_CallUndoableCommand("Add Window", [&]() -> GSErrCode {
+        GSErrCode e = ACAPI_Element_CreateExt(&elem, &memo, 1UL, &marker);
+        if (e != NoError) {
+            std::sprintf(errorMsg, "create window failed: err=%d", (int)e);
+            return e;
+        }
+        createdGuid = elem.header.guid;
+        return NoError;
+    });
+
+    ACAPI_DisposeElemMemoHdls(&memo);
+    ACAPI_DisposeElemMemoHdls(&marker.memo);
+
+    if (err != NoError || createdGuid == APINULLGuid) {
+        lua_pushnil(L);
+        lua_pushstring(L, errorMsg);
+        return 2;
+    }
+
+    GS::UniString guidStr = APIGuidToString(createdGuid);
+    lua_pushstring(L, guidStr.ToCStr().Get());
+    return 1;
+}
+
 static int GetCurrentFloor(lua_State* L)
 {
     API_StoryInfo storyInfo;
@@ -960,6 +1098,9 @@ inline void Register(lua_State* L)
 
     lua_pushcfunction(L, AddWall);
     lua_setfield(L, -2, "addwall");
+
+    lua_pushcfunction(L, AddWindow);
+    lua_setfield(L, -2, "addwindow");
 
     lua_setglobal(L, "acapi");
 }

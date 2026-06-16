@@ -7,6 +7,7 @@ extern "C" {
 }
 
 #include "ACAPinc.h"
+#include "../ArchiLua.hpp"
 
 namespace ArchiLua {
 namespace APIModule {
@@ -371,6 +372,459 @@ static int GetParams(lua_State* L)
     return 1;
 }
 
+// ---------------------------------------------------------------------------
+// Writing functions (Phase 3)
+// ---------------------------------------------------------------------------
+
+static int BeginUndo(lua_State* L)
+{
+    const char* label = lua_tostring(L, 1);
+    UndoBegin(label);
+    return 0;
+}
+
+static int EndUndo(lua_State* L)
+{
+    GSErrCode err = UndoEnd();
+    if (err != NoError) {
+        lua_pushnil(L);
+        lua_pushfstring(L, "endundo failed: err=%d", (int)err);
+        return 2;
+    }
+    lua_pushboolean(L, true);
+    return 1;
+}
+
+static int SetWall(lua_State* L)
+{
+    const char* guidStr = lua_tostring(L, 1);
+    if (!guidStr || !lua_istable(L, 2)) {
+        lua_pushnil(L);
+        lua_pushstring(L, "expected a GUID string and a table argument");
+        return 2;
+    }
+
+    API_Guid guid = APIGuidFromString(guidStr);
+
+    API_Element elem;
+    BNZeroMemory(&elem, sizeof(elem));
+    elem.header.guid = guid;
+    GSErrCode err = ACAPI_Element_Get(&elem);
+    if (err != NoError) {
+        lua_pushnil(L);
+        lua_pushfstring(L, "ACAPI_Element_Get failed: err=%d", (int)err);
+        return 2;
+    }
+    if (elem.header.type.typeID != API_WallID) {
+        lua_pushnil(L);
+        lua_pushstring(L, "element is not a wall");
+        return 2;
+    }
+
+    API_Element mask;
+    ACAPI_ELEMENT_MASK_CLEAR(mask);
+
+    lua_pushnil(L);
+    while (lua_next(L, 2)) {
+        const char* key = lua_tostring(L, -2);
+        if (!key) {
+            lua_pop(L, 1);
+            continue;
+        }
+
+        if (strcmp(key, "height") == 0 && lua_isnumber(L, -1)) {
+            elem.wall.height = lua_tonumber(L, -1);
+            ACAPI_ELEMENT_MASK_SET(mask, API_WallType, height);
+        } else if (strcmp(key, "thickness") == 0 && lua_isnumber(L, -1)) {
+            elem.wall.thickness = lua_tonumber(L, -1);
+            ACAPI_ELEMENT_MASK_SET(mask, API_WallType, thickness);
+        } else if (strcmp(key, "layer") == 0 && lua_isinteger(L, -1)) {
+            elem.header.layer = ACAPI_CreateAttributeIndex((Int32)lua_tointeger(L, -1));
+            ACAPI_ELEMENT_MASK_SET(mask, API_Elem_Head, layer);
+        } else if (strcmp(key, "begC") == 0 && lua_istable(L, -1)) {
+            lua_getfield(L, -1, "x");
+            lua_getfield(L, -2, "y");
+            if (lua_isnumber(L, -2) && lua_isnumber(L, -1)) {
+                elem.wall.begC.x = lua_tonumber(L, -2);
+                elem.wall.begC.y = lua_tonumber(L, -1);
+                ACAPI_ELEMENT_MASK_SET(mask, API_WallType, begC);
+            }
+            lua_pop(L, 2);
+        } else if (strcmp(key, "endC") == 0 && lua_istable(L, -1)) {
+            lua_getfield(L, -1, "x");
+            lua_getfield(L, -2, "y");
+            if (lua_isnumber(L, -2) && lua_isnumber(L, -1)) {
+                elem.wall.endC.x = lua_tonumber(L, -2);
+                elem.wall.endC.y = lua_tonumber(L, -1);
+                ACAPI_ELEMENT_MASK_SET(mask, API_WallType, endC);
+            }
+            lua_pop(L, 2);
+        }
+
+        lua_pop(L, 1);
+    }
+
+    if (UndoIsActive()) {
+        UndoBuffer(guid, elem, mask);
+    } else {
+        err = ACAPI_CallUndoableCommand("Modify Wall", [&]() -> GSErrCode {
+            return ACAPI_Element_Change(&elem, &mask, nullptr, 0, true);
+        });
+        if (err != NoError) {
+            lua_pushnil(L);
+            lua_pushfstring(L, "setwall failed: err=%d", (int)err);
+            return 2;
+        }
+    }
+
+    lua_pushboolean(L, true);
+    return 1;
+}
+
+static int SetElement(lua_State* L)
+{
+    const char* guidStr = lua_tostring(L, 1);
+    if (!guidStr || !lua_istable(L, 2)) {
+        lua_pushnil(L);
+        lua_pushstring(L, "expected a GUID string and a table argument");
+        return 2;
+    }
+
+    API_Guid guid = APIGuidFromString(guidStr);
+
+    API_Element elem;
+    BNZeroMemory(&elem, sizeof(elem));
+    elem.header.guid = guid;
+    GSErrCode err = ACAPI_Element_Get(&elem);
+    if (err != NoError) {
+        lua_pushnil(L);
+        lua_pushfstring(L, "ACAPI_Element_Get failed: err=%d", (int)err);
+        return 2;
+    }
+
+    API_Element mask;
+    ACAPI_ELEMENT_MASK_CLEAR(mask);
+
+    lua_pushnil(L);
+    while (lua_next(L, 2)) {
+        const char* key = lua_tostring(L, -2);
+        if (!key) {
+            lua_pop(L, 1);
+            continue;
+        }
+
+        if (strcmp(key, "layer") == 0 && lua_isinteger(L, -1)) {
+            elem.header.layer = ACAPI_CreateAttributeIndex((Int32)lua_tointeger(L, -1));
+            ACAPI_ELEMENT_MASK_SET(mask, API_Elem_Head, layer);
+        }
+
+        lua_pop(L, 1);
+    }
+
+    if (UndoIsActive()) {
+        UndoBuffer(guid, elem, mask);
+    } else {
+        err = ACAPI_CallUndoableCommand("Modify Element", [&]() -> GSErrCode {
+            return ACAPI_Element_Change(&elem, &mask, nullptr, 0, true);
+        });
+        if (err != NoError) {
+            lua_pushnil(L);
+            lua_pushfstring(L, "set failed: err=%d", (int)err);
+            return 2;
+        }
+    }
+
+    lua_pushboolean(L, true);
+    return 1;
+}
+
+static int SetParams(lua_State* L)
+{
+    const char* guidStr = lua_tostring(L, 1);
+    if (!guidStr || !lua_istable(L, 2)) {
+        lua_pushnil(L);
+        lua_pushstring(L, "expected a GUID string and a table argument");
+        return 2;
+    }
+
+    API_Guid guid = APIGuidFromString(guidStr);
+
+    API_Element elem;
+    BNZeroMemory(&elem, sizeof(elem));
+    elem.header.guid = guid;
+    GSErrCode err = ACAPI_Element_Get(&elem);
+    if (err != NoError) {
+        lua_pushnil(L);
+        lua_pushfstring(L, "ACAPI_Element_Get failed: err=%d", (int)err);
+        return 2;
+    }
+
+    API_ElementMemo memo;
+    BNZeroMemory(&memo, sizeof(memo));
+    err = ACAPI_Element_GetMemo(guid, &memo, APIMemoMask_AddPars);
+    if (err != NoError || memo.params == nullptr) {
+        lua_pushnil(L);
+        lua_pushstring(L, "element has no modifiable parameters");
+        return 2;
+    }
+
+    UInt32 nParams = (UInt32)(BMGetHandleSize((GSHandle)memo.params) / sizeof(API_AddParType));
+    bool anyChanged = false;
+
+    for (UInt32 i = 0; i < nParams; ++i) {
+        API_AddParType& par = (*memo.params)[i];
+        if (par.typeMod != API_ParSimple)
+            continue;
+
+        lua_getfield(L, 2, par.name);
+        if (lua_isnil(L, -1)) {
+            lua_pop(L, 1);
+            continue;
+        }
+
+        switch (par.typeID) {
+            case APIParT_Integer:
+            case APIParT_Length:
+            case APIParT_Angle:
+            case APIParT_RealNum:
+            case APIParT_Intens:
+                if (lua_isnumber(L, -1)) {
+                    par.value.real = lua_tonumber(L, -1);
+                    anyChanged = true;
+                }
+                break;
+            case APIParT_LightSw:
+            case APIParT_Boolean:
+                par.value.real = lua_toboolean(L, -1) ? 1.0 : 0.0;
+                anyChanged = true;
+                break;
+            case APIParT_CString:
+            {
+                const char* s = lua_tostring(L, -1);
+                if (s) {
+                    int wlen = MultiByteToWideChar(CP_UTF8, 0, s, -1, nullptr, 0);
+                    if (wlen > 0 && wlen <= API_UAddParStrLen) {
+                        MultiByteToWideChar(CP_UTF8, 0, s, -1, (LPWCH)par.value.uStr, wlen);
+                        anyChanged = true;
+                    }
+                }
+                break;
+            }
+            default:
+                break;
+        }
+        lua_pop(L, 1);
+    }
+
+    if (!anyChanged) {
+        ACAPI_DisposeElemMemoHdls(&memo);
+        lua_pushboolean(L, true);
+        return 1;
+    }
+
+    API_Element mask;
+    ACAPI_ELEMENT_MASK_CLEAR(mask);
+
+    err = ACAPI_CallUndoableCommand("Modify Parameters", [&]() -> GSErrCode {
+        return ACAPI_Element_Change(&elem, &mask, &memo, APIMemoMask_AddPars, true);
+    });
+
+    ACAPI_DisposeElemMemoHdls(&memo);
+
+    if (err != NoError) {
+        lua_pushnil(L);
+        lua_pushfstring(L, "setparams failed: err=%d", (int)err);
+        return 2;
+    }
+
+    lua_pushboolean(L, true);
+    return 1;
+}
+
+static int FindObject(lua_State* L)
+{
+    const char* name = lua_tostring(L, 1);
+    if (!name) {
+        lua_pushnil(L);
+        lua_pushstring(L, "expected a name string argument");
+        return 2;
+    }
+
+    API_LibPart libPart;
+    BNZeroMemory(&libPart, sizeof(libPart));
+    GS::ucscpy(libPart.docu_UName, GS::UniString(name).ToUStr());
+
+    GSErrCode err = ACAPI_LibraryPart_Search(&libPart, false);
+    if (err != NoError || libPart.index == 0) {
+        lua_pushnil(L);
+        lua_pushfstring(L, "library part not found: %s", name);
+        return 2;
+    }
+
+    lua_pushinteger(L, libPart.index);
+    lua_pushstring(L, GS::UniString(libPart.docu_UName).ToCStr().Get());
+    return 2;
+}
+
+static int CreateElement(lua_State* L)
+{
+    if (!lua_isinteger(L, 1) || !lua_istable(L, 2)) {
+        lua_pushnil(L);
+        lua_pushstring(L, "expected libInd (integer) and position table arguments");
+        return 2;
+    }
+
+    Int32 libInd = (Int32)lua_tointeger(L, 1);
+
+    // Position: { x, y } or { x=, y= }
+    double posX = 0, posY = 0;
+    lua_getfield(L, 2, "x");
+    if (lua_isnumber(L, -1)) {
+        posX = lua_tonumber(L, -1);
+        lua_pop(L, 1);
+        lua_getfield(L, 2, "y");
+        if (lua_isnumber(L, -1)) {
+            posY = lua_tonumber(L, -1);
+        }
+        lua_pop(L, 1);
+    } else {
+        lua_pop(L, 1);
+        lua_rawgeti(L, 2, 1);
+        if (lua_isnumber(L, -1)) {
+            posX = lua_tonumber(L, -1);
+            lua_pop(L, 1);
+            lua_rawgeti(L, 2, 2);
+            if (lua_isnumber(L, -1)) {
+                posY = lua_tonumber(L, -1);
+            }
+            lua_pop(L, 1);
+        } else {
+            lua_pop(L, 1);
+        }
+    }
+
+    // Optional params table (3rd arg)
+    bool hasParams = lua_istable(L, 3);
+
+    API_Guid createdGuid = APINULLGuid;
+    char errorMsg[256];
+
+    GSErrCode err = ACAPI_CallUndoableCommand("Create Element", [&]() -> GSErrCode {
+        API_Element elem;
+        BNZeroMemory(&elem, sizeof(elem));
+
+        // Set header type from libInd
+        API_LibPart libPart;
+        BNZeroMemory(&libPart, sizeof(libPart));
+        libPart.index = libInd;
+        GSErrCode e = ACAPI_LibraryPart_Get(&libPart);
+        if (e != NoError) { std::sprintf(errorMsg, "LibraryPart_Get failed: err=%d", (int)e); return e; }
+
+        // Determine element type from the library part
+        elem.header.type.typeID = static_cast<API_ElemTypeID>(libPart.typeID);
+
+        // Set common fields
+        elem.header.floorInd = 1; // default floor
+
+        // Set position based on type
+        switch (libPart.typeID) {
+            case API_ObjectID:
+                elem.object.libInd = libInd;
+                elem.object.pos.x = posX;
+                elem.object.pos.y = posY;
+                break;
+            default:
+                std::sprintf(errorMsg, "unsupported element type for creation");
+                return APIERR_GENERAL;
+        }
+
+        // Get default params from the library part and apply overrides
+        API_ElementMemo memo;
+        BNZeroMemory(&memo, sizeof(memo));
+
+        if (hasParams) {
+            API_ParamOwnerType paramOwner;
+            BNZeroMemory(&paramOwner, sizeof(paramOwner));
+            paramOwner.libInd = libInd;
+            e = ACAPI_LibraryPart_OpenParameters(&paramOwner);
+            if (e != NoError) {
+                std::sprintf(errorMsg, "OpenParameters failed: err=%d", (int)e);
+                return e;
+            }
+
+            API_GetParamsType getParams;
+            BNZeroMemory(&getParams, sizeof(getParams));
+            e = ACAPI_LibraryPart_GetActParameters(&getParams);
+            if (e != NoError || getParams.params == nullptr) {
+                ACAPI_LibraryPart_CloseParameters();
+                std::sprintf(errorMsg, "GetActParameters failed: err=%d", (int)e);
+                return e != NoError ? e : APIERR_GENERAL;
+            }
+
+            UInt32 nParams = (UInt32)(BMGetHandleSize((GSHandle)getParams.params) / sizeof(API_AddParType));
+            for (UInt32 i = 0; i < nParams; ++i) {
+                API_AddParType& par = (*getParams.params)[i];
+                if (par.typeMod != API_ParSimple)
+                    continue;
+
+                lua_getfield(L, 3, par.name);
+                if (lua_isnil(L, -1)) { lua_pop(L, 1); continue; }
+
+                switch (par.typeID) {
+                    case APIParT_Integer: case APIParT_Length:
+                    case APIParT_Angle: case APIParT_RealNum: case APIParT_Intens:
+                        if (lua_isnumber(L, -1))
+                            par.value.real = lua_tonumber(L, -1);
+                        break;
+                    case APIParT_LightSw: case APIParT_Boolean:
+                        par.value.real = lua_toboolean(L, -1) ? 1.0 : 0.0;
+                        break;
+                    case APIParT_CString: {
+                        const char* s = lua_tostring(L, -1);
+                        if (s) {
+                            int wlen = MultiByteToWideChar(CP_UTF8, 0, s, -1, nullptr, 0);
+                            if (wlen > 0 && wlen <= API_UAddParStrLen) {
+                                MultiByteToWideChar(CP_UTF8, 0, s, -1, (LPWCH)par.value.uStr, wlen);
+                            }
+                        }
+                        break;
+                    }
+                    default: break;
+                }
+                lua_pop(L, 1);
+            }
+
+            // Transfer params handle to memo
+            ACAPI_DisposeAddParHdl(&memo.params);
+            memo.params = getParams.params;
+            ACAPI_LibraryPart_CloseParameters();
+        }
+
+        // Create the element
+        e = ACAPI_Element_Create(&elem, hasParams ? &memo : nullptr);
+        if (e != NoError) {
+            if (hasParams) ACAPI_DisposeElemMemoHdls(&memo);
+            std::sprintf(errorMsg, "Element_Create failed: err=%d", (int)e);
+            return e;
+        }
+
+        if (hasParams) ACAPI_DisposeElemMemoHdls(&memo);
+
+        createdGuid = elem.header.guid;
+        return NoError;
+    });
+
+    if (err != NoError || createdGuid == APINULLGuid) {
+        lua_pushnil(L);
+        lua_pushstring(L, errorMsg);
+        return 2;
+    }
+
+    GS::UniString guidStr = APIGuidToString(createdGuid);
+    lua_pushstring(L, guidStr.ToCStr().Get());
+    return 1;
+}
+
 inline void Register(lua_State* L)
 {
     lua_newtable(L);
@@ -389,6 +843,27 @@ inline void Register(lua_State* L)
 
     lua_pushcfunction(L, GetParams);
     lua_setfield(L, -2, "getparams");
+
+    lua_pushcfunction(L, BeginUndo);
+    lua_setfield(L, -2, "beginundo");
+
+    lua_pushcfunction(L, EndUndo);
+    lua_setfield(L, -2, "endundo");
+
+    lua_pushcfunction(L, SetWall);
+    lua_setfield(L, -2, "setwall");
+
+    lua_pushcfunction(L, SetElement);
+    lua_setfield(L, -2, "set");
+
+    lua_pushcfunction(L, SetParams);
+    lua_setfield(L, -2, "setparams");
+
+    lua_pushcfunction(L, FindObject);
+    lua_setfield(L, -2, "findobject");
+
+    lua_pushcfunction(L, CreateElement);
+    lua_setfield(L, -2, "create");
 
     lua_setglobal(L, "acapi");
 }

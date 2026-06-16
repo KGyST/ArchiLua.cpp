@@ -112,3 +112,85 @@ GSErrCode __ACENV_CALL FreeData(void)
     GetBridge().CloseDialog();
     return NoError;
 }
+
+// =============================================================================
+//
+// Undo state
+//
+// =============================================================================
+
+namespace {
+
+struct UndoState {
+    bool                     active = false;
+    GS::UniString            label;
+    std::vector<PendingChange> buffer;
+};
+
+UndoState& GetUndoState()
+{
+    static UndoState us;
+    return us;
+}
+
+} // anonymous namespace
+
+bool ArchiLua::UndoIsActive()
+{
+    return GetUndoState().active;
+}
+
+void ArchiLua::UndoBegin(const char* label)
+{
+    auto& us = GetUndoState();
+    for (auto& pc : us.buffer) {
+        if (pc.hasMemo)
+            ACAPI_DisposeElemMemoHdls(&pc.memo);
+    }
+    us.buffer.clear();
+    us.active = true;
+    us.label = label ? GS::UniString(label) : GS::UniString("ArchiLua operation");
+}
+
+GSErrCode ArchiLua::UndoEnd()
+{
+    auto& us = GetUndoState();
+    if (!us.active || us.buffer.empty()) {
+        us.active = false;
+        return NoError;
+    }
+
+    GS::UniString savedLabel = us.label;
+    std::vector<PendingChange> savedBuffer;
+    savedBuffer.swap(us.buffer);
+    us.active = false;
+
+    GSErrCode err = ACAPI_CallUndoableCommand(savedLabel, [&]() -> GSErrCode {
+        for (auto& pc : savedBuffer) {
+            GSErrCode e = ACAPI_Element_Change(&pc.elem, &pc.mask, pc.hasMemo ? &pc.memo : nullptr, 0, true);
+            if (e != NoError)
+                return e;
+        }
+        return NoError;
+    });
+
+    for (auto& pc : savedBuffer) {
+        if (pc.hasMemo)
+            ACAPI_DisposeElemMemoHdls(&pc.memo);
+    }
+    return err;
+}
+
+void ArchiLua::UndoBuffer(const API_Guid& guid, const API_Element& elem, const API_Element& mask)
+{
+    auto& us = GetUndoState();
+    for (auto& pc : us.buffer) {
+        if (pc.guid == guid) {
+            pc.elem = elem;
+            pc.mask = mask;
+            pc.hasMemo = false;
+            return;
+        }
+    }
+    us.buffer.push_back({guid, elem, mask, {}, false});
+}

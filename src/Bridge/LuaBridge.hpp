@@ -120,18 +120,15 @@ public:
         }
     }
 
-    void SetDialog(DG::Palette* dlg) { m_dialog = dlg; }
-    DG::Palette* GetDialog() const { return m_dialog; }
-
     void CloseDialog()
     {
         if (m_dialog) {
-            void* hwnd = m_dialog->GetWindow();
-            if (hwnd)
-                ::DestroyWindow((HWND)hwnd);
-            m_dialog = nullptr;
+            m_dialog->SendCloseRequest();
         }
     }
+
+    void SetDialog(DG::Palette* dlg) { m_dialog = dlg; }
+    DG::Palette* GetDialog() const { return m_dialog; }
 
     lua_State* State() { return L; }
 

@@ -40,6 +40,13 @@ for i, guid in ipairs(sel) do
                 end
             end
         end
+        -- Move the wall by (1, 1)
+        acapi.beginundo("Move wall 1,1")
+        acapi.setwall(guid, {
+            begC = { x = wall.begC.x + 1, y = wall.begC.y + 1 },
+            endC = { x = wall.endC.x + 1, y = wall.endC.y + 1 }
+        })
+        acapi.endundo()
     else
         print("    error: " .. guid .. " is not a wall")
     end

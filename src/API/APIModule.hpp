@@ -836,7 +836,6 @@ static int AddWall(lua_State* L)
     API_Element elem;
     BNZeroMemory(&elem, sizeof(elem));
     elem.header.type.typeID = API_WallID;
-    elem.header.floorInd = 1;
 
     // Read position
     lua_getfield(L, 1, "begC");
@@ -864,6 +863,15 @@ static int AddWall(lua_State* L)
     lua_getfield(L, 1, "layer");
     if (lua_isinteger(L, -1))
         elem.header.layer = ACAPI_CreateAttributeIndex((Int32)lua_tointeger(L, -1));
+    lua_pop(L, 1);
+
+    // floorInd (storey); try "storey" first, fall back to "floorInd"
+    lua_getfield(L, 1, "storey");
+    if (!lua_isinteger(L, -1)) {
+        lua_pop(L, 1);
+        lua_getfield(L, 1, "floorInd");
+    }
+    elem.header.floorInd = lua_isinteger(L, -1) ? (Int32)lua_tointeger(L, -1) : 1;
     lua_pop(L, 1);
 
     API_Guid createdGuid = APINULLGuid;

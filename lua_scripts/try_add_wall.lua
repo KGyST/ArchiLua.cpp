@@ -5,7 +5,8 @@ local guid = acapi.addwall({
     endC = { x = 5, y = 0 },
     height = 3.0,
     thickness = 0.25,
-    layer = 1
+    layer = 1,
+    storey = 1
 })
 
 if guid then

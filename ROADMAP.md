@@ -47,11 +47,11 @@
 
 ## Phase 3.5: Extending Command and Element List
 - [ ] **Create Objects from Scratch:** (Simplest possible) Walls
-  - Advancing by creating polygonal walls
-	- Extending wall parametrization
+  - Advancing by creating polygonal walls (supporting `API_ElementMemo` geometry injection)
+  - Extending wall parametrization
 - [ ] **Doors and Windows:** into the (selected or active) wall, taking care of Wall side and Mirrored/Not mirrored
-	- Wall Addons
-- [ ] **Roofs and Slabs:** creation, analoguous to the Walls
+  - Wall Addons and host wall coordinate system alignment mapping
+- [ ] **Roofs and Slabs:** creation, analogous to the Walls
 
 ## Phase 3.5: Element Creation (Wall) ✓
 - [x] **Create Wall:** `acapi.addwall({begC={x,y}, endC={x,y}, height, thickness, layer})` — creates a new wall element via `ACAPI_Element_Create` wrapped in an undoable command.
@@ -59,6 +59,7 @@
 
 ## Phase 4: Stability & Logic (The MVP)
 - [ ] **GC Safety:** C++ side `collectgarbage("stop")` before ACAPI calls and `collectgarbage("collect")` on scope exit.
+- [ ] **Transaction Exception Safety:** Ensure that if a Lua script throws an error between `beginundo` and `endundo`, the C++ host gracefully aborts/closes the open ACAPI transaction to prevent DB corruption.
 - [ ] **Transformation Logic:** Emulate GDL-style `ADD`, `MUL`, `ROTX` stack within Lua for panel alignment.
 
 ---

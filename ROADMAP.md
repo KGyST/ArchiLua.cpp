@@ -37,14 +37,14 @@
 - [x] **Debug Adapter Protocol:** Integrate Debug Adapter Protocol for remote IDE attachment.
 - [x] **Modeless GUI:** Change now-modal GUI to modeless (`DG::Palette`). When "Run" button is pressed, the script runs in blocker mode (sync). 
 		
-## Phase 3: The Action (Writing)
-- [ ] **Object Modification:** An already read object (like a wall) properties are to be modified and written back to the Archicad DB.
-  - Undoable command
-	- Sincronity, garbage collector etc issues to be handled properly and this working is to be thested properly
-- [ ] **Parameter Marshaling:** Map Lua tables `{ name = value }` to `API_AddParID` handles.
-- [ ] **Transaction Guard:** Implementation of `ACAPI_CallUndoableCommand` to ensure Lua-batch operations are a single "Undo" step.
-- [ ] **Object Finder:** Search Library Part by name (`m_Viapanel_Wallpanel`) and return its `LibIndex`.
-- [ ] **Placement:** Wrap `ACAPI_Element_Create` to instantiate objects at calculated coordinates.
+## Phase 3: The Action (Writing) ✓
+- [x] **Transaction Guard:** `acapi.beginundo(label)` / `acapi.endundo()` — buffers changes in `PendingChange` vector, flushes in a single `ACAPI_CallUndoableCommand`. Standalone writes (outside begin/end) auto-create their own undo step via `ACAPI_CallUndoableCommand`.
+- [x] **Object Modification:** `acapi.setwall(guid, table)` modifies wall properties (height, thickness, layer, begC/endC) and writes back via `ACAPI_Element_Change` with mask.
+- [x] **Generic Setter:** `acapi.set(guid, table)` for any element type — reads `API_Element_Get`, applies `layer` (common field), dispatches type-specific fields.
+- [x] **Parameter Writing:** `acapi.setparams(guid, {name=value})` writes GDL parameters via `ACAPI_Element_GetMemo(APIMemoMask_AddPars)` + `ACAPI_Element_Change(APIMemoMask_AddPars)` pattern.
+- [x] **Object Finder:** `acapi.findobject(name)` searches Library Part by name via `ACAPI_LibraryPart_Search`, returns `libInd` + display name.
+- [x] **Placement:** `acapi.create(libInd, position, params)` wraps `ACAPI_Element_Create` with optional initial GDL parameter overrides.
+- [ ] **GC Safety:** `collectgarbage("stop")` before C API calls inside undoable commands to prevent GC during ACAPI operations.
 
 ## Phase 4: Stability & Logic (The MVP)
 - [ ] **GC Safety:** C++ side `collectgarbage("stop")` before ACAPI calls and `collectgarbage("collect")` on scope exit.
@@ -54,6 +54,7 @@
 ### v0.1.0 - MVP REACHED
 
 ## Phase 5: Scaling (Post-MVP)
+- [ ] **Userdata Migration:** Replace Lua tables with full userdata + metatables for element objects. Adds `__index` for lazy access, `__newindex` for writes, `__gc` for cleanup, type identity via metatable comparison.
 - [ ] **GUI Integration:** `LUA-LIMGUI` (Dear ImGui) overlay for real-time parameter tweaking.
 - [ ] **Event Listeners:** Lua callbacks triggered by ArchiCAD element modification events.
   - A wall modified can trigger a lua script again that was run on that wall.

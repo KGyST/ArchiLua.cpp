@@ -871,7 +871,7 @@ static int AddWall(lua_State* L)
         lua_pop(L, 1);
         lua_getfield(L, 1, "storey");
     }
-    elem.header.floorInd = lua_isinteger(L, -1) ? (Int32)lua_tointeger(L, -1) : 1;
+    elem.header.floorInd = (short)(lua_isinteger(L, -1) ? lua_tointeger(L, -1) : 1);
     lua_pop(L, 1);
 
     API_Guid createdGuid = APINULLGuid;
@@ -897,6 +897,24 @@ static int AddWall(lua_State* L)
     return 1;
 }
 
+static int GetCurrentFloor(lua_State* L)
+{
+    API_StoryInfo storyInfo;
+    BNZeroMemory(&storyInfo, sizeof(storyInfo));
+    GSErrCode err = ACAPI_ProjectSetting_GetStorySettings(&storyInfo);
+    if (err != NoError) {
+        lua_pushnil(L);
+        return 1;
+    }
+
+    lua_pushinteger(L, storyInfo.actStory);
+
+    if (storyInfo.data != nullptr)
+        BMKillHandle((GSHandle*)&storyInfo.data);
+
+    return 1;
+}
+
 inline void Register(lua_State* L)
 {
     lua_newtable(L);
@@ -909,6 +927,9 @@ inline void Register(lua_State* L)
 
     lua_pushcfunction(L, GetElement);
     lua_setfield(L, -2, "get");
+
+    lua_pushcfunction(L, GetCurrentFloor);
+    lua_setfield(L, -2, "getCurrentFloor");
 
     lua_pushcfunction(L, GetPoly);
     lua_setfield(L, -2, "getpoly");

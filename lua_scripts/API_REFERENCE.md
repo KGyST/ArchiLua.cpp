@@ -8,6 +8,8 @@
 
 `local wall = acapi.getwall(guid)` — wall table with fields: `guid`, `layer`, `type`, `height`, `thickness`, `begC{x,y}`, `endC{x,y}`, `coords[{x,y}]`, `openings{windows=[guid], doors=[guid]}`.
 
+`local floorIdx = acapi.getCurrentFloor()` — index of the currently active story.
+
 `local elem = acapi.get(guid)` — generic element table: `guid`, `layer`, `typeName`, `coords[{x,y}]`.
 
 `local poly = acapi.getpoly(guid)` — polygon vertex array `[{x,y}]` or `nil`.

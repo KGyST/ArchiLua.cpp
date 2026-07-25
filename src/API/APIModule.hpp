@@ -837,20 +837,65 @@ static int AddWall(lua_State* L)
     BNZeroMemory(&elem, sizeof(elem));
     elem.header.type.typeID = API_WallID;
 
-    // Read position
-    lua_getfield(L, 1, "begC");
+    API_ElementMemo memo;
+    BNZeroMemory(&memo, sizeof(memo));
+    bool hasMemo = false;
+
+    // Check for polygonal wall
+    lua_getfield(L, 1, "poly");
     if (lua_istable(L, -1)) {
-        lua_getfield(L, -1, "x");  elem.wall.begC.x = lua_isnumber(L, -1) ? lua_tonumber(L, -1) : 0; lua_pop(L, 1);
-        lua_getfield(L, -1, "y");  elem.wall.begC.y = lua_isnumber(L, -1) ? lua_tonumber(L, -1) : 0; lua_pop(L, 1);
+        elem.wall.type = APIWtyp_Poly;
+
+        Int32 nVerts = (Int32)lua_rawlen(L, -1);
+        if (nVerts < 3) {
+            lua_pop(L, 1);
+            lua_pushnil(L);
+            lua_pushstring(L, "poly needs at least 3 vertices");
+            return 2;
+        }
+
+        memo.coords = (API_Coord**)BMAllocateHandle((nVerts + 1) * sizeof(API_Coord), ALLOCATE_CLEAR, 0);
+        if (memo.coords == nullptr) {
+            lua_pop(L, 1);
+            lua_pushnil(L);
+            lua_pushstring(L, "out of memory");
+            return 2;
+        }
+        hasMemo = true;
+
+        for (Int32 i = 0; i < nVerts; i++) {
+            lua_rawgeti(L, -1, i + 1);
+            if (lua_istable(L, -1)) {
+                lua_getfield(L, -1, "x");
+                (*memo.coords)[i].x = lua_isnumber(L, -1) ? lua_tonumber(L, -1) : 0;
+                lua_pop(L, 1);
+                lua_getfield(L, -1, "y");
+                (*memo.coords)[i].y = lua_isnumber(L, -1) ? lua_tonumber(L, -1) : 0;
+                lua_pop(L, 1);
+            }
+            lua_pop(L, 1);
+        }
+        // Close polygon: last vertex = first
+        (*memo.coords)[nVerts] = (*memo.coords)[0];
     }
     lua_pop(L, 1);
 
-    lua_getfield(L, 1, "endC");
-    if (lua_istable(L, -1)) {
-        lua_getfield(L, -1, "x");  elem.wall.endC.x = lua_isnumber(L, -1) ? lua_tonumber(L, -1) : 5; lua_pop(L, 1);
-        lua_getfield(L, -1, "y");  elem.wall.endC.y = lua_isnumber(L, -1) ? lua_tonumber(L, -1) : 0; lua_pop(L, 1);
+    // Read straight wall position only if not polygonal
+    if (elem.wall.type != APIWtyp_Poly) {
+        lua_getfield(L, 1, "begC");
+        if (lua_istable(L, -1)) {
+            lua_getfield(L, -1, "x");  elem.wall.begC.x = lua_isnumber(L, -1) ? lua_tonumber(L, -1) : 0; lua_pop(L, 1);
+            lua_getfield(L, -1, "y");  elem.wall.begC.y = lua_isnumber(L, -1) ? lua_tonumber(L, -1) : 0; lua_pop(L, 1);
+        }
+        lua_pop(L, 1);
+
+        lua_getfield(L, 1, "endC");
+        if (lua_istable(L, -1)) {
+            lua_getfield(L, -1, "x");  elem.wall.endC.x = lua_isnumber(L, -1) ? lua_tonumber(L, -1) : 5; lua_pop(L, 1);
+            lua_getfield(L, -1, "y");  elem.wall.endC.y = lua_isnumber(L, -1) ? lua_tonumber(L, -1) : 0; lua_pop(L, 1);
+        }
+        lua_pop(L, 1);
     }
-    lua_pop(L, 1);
 
     lua_getfield(L, 1, "height");
     elem.wall.height = lua_isnumber(L, -1) ? lua_tonumber(L, -1) : 3.0;
@@ -877,14 +922,17 @@ static int AddWall(lua_State* L)
     API_Guid createdGuid = APINULLGuid;
     char errorMsg[256];
     GSErrCode err = ACAPI_CallUndoableCommand("Create Wall", [&]() -> GSErrCode {
-        GSErrCode e = ACAPI_Element_Create(&elem, nullptr);
+        GSErrCode e = ACAPI_Element_Create(&elem, hasMemo ? &memo : nullptr);
         if (e != NoError) {
-            std::sprintf(errorMsg, "addwall failed: err=%d", (int)e);
+            std::sprintf(errorMsg, "addWall failed: err=%d", (int)e);
             return e;
         }
         createdGuid = elem.header.guid;
         return NoError;
     });
+
+    if (hasMemo)
+        ACAPI_DisposeElemMemoHdls(&memo);
 
     if (err != NoError || createdGuid == APINULLGuid) {
         lua_pushnil(L);
@@ -939,6 +987,20 @@ static int AddWindow(lua_State* L)
 
     lua_getfield(L, 2, "sillHeight");
     double sillHeight = lua_isnumber(L, -1) ? lua_tonumber(L, -1) : 0.9;
+    lua_pop(L, 1);
+
+    lua_getfield(L, 2, "wallSide");
+    bool wallSideInside = false;
+    if (lua_isstring(L, -1)) {
+        const char* s = lua_tostring(L, -1);
+        wallSideInside = (GS::UniString(s).Compare("inside") == 0);
+    } else if (lua_isinteger(L, -1)) {
+        wallSideInside = (lua_tointeger(L, -1) != 0);
+    }
+    lua_pop(L, 1);
+
+    lua_getfield(L, 2, "mirrored");
+    bool mirrored = lua_toboolean(L, -1);
     lua_pop(L, 1);
 
     // Set up window element
@@ -1006,6 +1068,8 @@ static int AddWindow(lua_State* L)
     elem.window.openingBase.height = height;
     elem.window.openingBase.width = width;
     elem.window.lower = sillHeight;
+    elem.window.wallSide = wallSideInside ? 1 : 0;
+    elem.window.reflected = mirrored;
 
     // Create
     char errorMsg[256];
@@ -1023,6 +1087,351 @@ static int AddWindow(lua_State* L)
 
     ACAPI_DisposeElemMemoHdls(&memo);
     ACAPI_DisposeElemMemoHdls(&marker.memo);
+
+    if (err != NoError || createdGuid == APINULLGuid) {
+        lua_pushnil(L);
+        lua_pushstring(L, errorMsg);
+        return 2;
+    }
+
+    GS::UniString guidStr = APIGuidToString(createdGuid);
+    lua_pushstring(L, guidStr.ToCStr().Get());
+    return 1;
+}
+
+static int AddDoor(lua_State* L)
+{
+    const char* wallGuidStr = lua_tostring(L, 1);
+    if (!wallGuidStr || !lua_istable(L, 2)) {
+        lua_pushnil(L);
+        lua_pushstring(L, "expected a wall GUID and a params table");
+        return 2;
+    }
+
+    API_Guid wallGuid = APIGuidFromString(wallGuidStr);
+
+    // Verify wall exists and is straight
+    API_Element wallElem;
+    BNZeroMemory(&wallElem, sizeof(wallElem));
+    wallElem.header.guid = wallGuid;
+    GSErrCode err = ACAPI_Element_Get(&wallElem);
+    if (err != NoError || wallElem.header.type.typeID != API_WallID) {
+        lua_pushnil(L);
+        lua_pushstring(L, "wall not found");
+        return 2;
+    }
+    if (wallElem.wall.type == APIWtyp_Poly) {
+        lua_pushnil(L);
+        lua_pushstring(L, "cannot place door in polygonal wall");
+        return 2;
+    }
+
+    // Read params
+    lua_getfield(L, 2, "objLoc");
+    double objLoc = lua_isnumber(L, -1) ? lua_tonumber(L, -1) : 2.0;
+    lua_pop(L, 1);
+
+    lua_getfield(L, 2, "height");
+    double height = lua_isnumber(L, -1) ? lua_tonumber(L, -1) : 2.0;
+    lua_pop(L, 1);
+
+    lua_getfield(L, 2, "width");
+    double width = lua_isnumber(L, -1) ? lua_tonumber(L, -1) : 0.9;
+    lua_pop(L, 1);
+
+    lua_getfield(L, 2, "wallSide");
+    bool wallSideInside = false;
+    if (lua_isstring(L, -1)) {
+        const char* s = lua_tostring(L, -1);
+        wallSideInside = (GS::UniString(s).Compare("inside") == 0);
+    } else if (lua_isinteger(L, -1)) {
+        wallSideInside = (lua_tointeger(L, -1) != 0);
+    }
+    lua_pop(L, 1);
+
+    lua_getfield(L, 2, "mirrored");
+    bool mirrored = lua_toboolean(L, -1);
+    lua_pop(L, 1);
+
+    // Set up door element
+    API_Element elem;
+    BNZeroMemory(&elem, sizeof(elem));
+    elem.header.type.typeID = API_DoorID;
+
+    API_ElementMemo memo;
+    BNZeroMemory(&memo, sizeof(memo));
+
+    API_SubElement marker;
+    BNZeroMemory(&marker, sizeof(marker));
+    marker.subType = APISubElement_MainMarker;
+
+    // Get defaults for door
+    err = ACAPI_Element_GetDefaultsExt(&elem, &memo, 1UL, &marker);
+    if (err != NoError) {
+        lua_pushnil(L);
+        lua_pushfstring(L, "GetDefaultsExt failed: err=%d", (int)err);
+        return 2;
+    }
+
+    // Get marker parent library part
+    API_LibPart libPart;
+    BNZeroMemory(&libPart, sizeof(libPart));
+    err = ACAPI_LibraryPart_GetMarkerParent(elem.header.type, libPart);
+    if (err != NoError) {
+        ACAPI_DisposeElemMemoHdls(&memo);
+        ACAPI_DisposeElemMemoHdls(&marker.memo);
+        lua_pushnil(L);
+        lua_pushfstring(L, "GetMarkerParent failed: err=%d", (int)err);
+        return 2;
+    }
+
+    err = ACAPI_LibraryPart_Search(&libPart, false, true);
+    if (err != NoError) {
+        ACAPI_DisposeElemMemoHdls(&memo);
+        ACAPI_DisposeElemMemoHdls(&marker.memo);
+        lua_pushnil(L);
+        lua_pushfstring(L, "LibraryPart_Search failed: err=%d", (int)err);
+        return 2;
+    }
+    delete libPart.location;
+
+    // Get marker params
+    double a, b;
+    Int32 addParNum;
+    API_AddParType** markAddPars = nullptr;
+    err = ACAPI_LibraryPart_GetParams(libPart.index, &a, &b, &addParNum, &markAddPars);
+    if (err != NoError) {
+        ACAPI_DisposeElemMemoHdls(&memo);
+        ACAPI_DisposeElemMemoHdls(&marker.memo);
+        lua_pushnil(L);
+        lua_pushfstring(L, "GetParams failed: err=%d", (int)err);
+        return 2;
+    }
+
+    marker.memo.params = markAddPars;
+    marker.subElem.object.pen = 166;
+    marker.subElem.object.useObjPens = true;
+
+    // Position on wall
+    elem.door.owner = wallGuid;
+    elem.door.objLoc = objLoc;
+    elem.door.openingBase.height = height;
+    elem.door.openingBase.width = width;
+    elem.door.wallSide = wallSideInside ? 1 : 0;
+    elem.door.reflected = mirrored;
+
+    // Create
+    char errorMsg[256];
+    API_Guid createdGuid = APINULLGuid;
+
+    err = ACAPI_CallUndoableCommand("Add Door", [&]() -> GSErrCode {
+        GSErrCode e = ACAPI_Element_CreateExt(&elem, &memo, 1UL, &marker);
+        if (e != NoError) {
+            std::sprintf(errorMsg, "create door failed: err=%d", (int)e);
+            return e;
+        }
+        createdGuid = elem.header.guid;
+        return NoError;
+    });
+
+    ACAPI_DisposeElemMemoHdls(&memo);
+    ACAPI_DisposeElemMemoHdls(&marker.memo);
+
+    if (err != NoError || createdGuid == APINULLGuid) {
+        lua_pushnil(L);
+        lua_pushstring(L, errorMsg);
+        return 2;
+    }
+
+    GS::UniString guidStr = APIGuidToString(createdGuid);
+    lua_pushstring(L, guidStr.ToCStr().Get());
+    return 1;
+}
+
+static int AddSlab(lua_State* L)
+{
+    if (!lua_istable(L, 1)) {
+        lua_pushnil(L);
+        lua_pushstring(L, "expected a table argument");
+        return 2;
+    }
+
+    // Read poly
+    lua_getfield(L, 1, "poly");
+    if (!lua_istable(L, -1)) {
+        lua_pop(L, 1);
+        lua_pushnil(L);
+        lua_pushstring(L, "poly table required");
+        return 2;
+    }
+
+    Int32 nVerts = (Int32)lua_rawlen(L, -1);
+    if (nVerts < 3) {
+        lua_pop(L, 1);
+        lua_pushnil(L);
+        lua_pushstring(L, "poly needs at least 3 vertices");
+        return 2;
+    }
+
+    API_Element elem;
+    BNZeroMemory(&elem, sizeof(elem));
+    elem.header.type.typeID = API_SlabID;
+
+    API_ElementMemo memo;
+    BNZeroMemory(&memo, sizeof(memo));
+
+    memo.coords = (API_Coord**)BMAllocateHandle((nVerts + 1) * sizeof(API_Coord), ALLOCATE_CLEAR, 0);
+    if (memo.coords == nullptr) {
+        lua_pop(L, 1);
+        lua_pushnil(L);
+        lua_pushstring(L, "out of memory");
+        return 2;
+    }
+
+    for (Int32 i = 0; i < nVerts; i++) {
+        lua_rawgeti(L, -1, i + 1);
+        if (lua_istable(L, -1)) {
+            lua_getfield(L, -1, "x");
+            (*memo.coords)[i].x = lua_isnumber(L, -1) ? lua_tonumber(L, -1) : 0;
+            lua_pop(L, 1);
+            lua_getfield(L, -1, "y");
+            (*memo.coords)[i].y = lua_isnumber(L, -1) ? lua_tonumber(L, -1) : 0;
+            lua_pop(L, 1);
+        }
+        lua_pop(L, 1);
+    }
+    (*memo.coords)[nVerts] = (*memo.coords)[0];
+    lua_pop(L, 1); // pop poly table
+
+    // Read params
+    lua_getfield(L, 1, "thickness");
+    elem.slab.thickness = lua_isnumber(L, -1) ? lua_tonumber(L, -1) : 0.2;
+    lua_pop(L, 1);
+
+    lua_getfield(L, 1, "layer");
+    if (lua_isinteger(L, -1))
+        elem.header.layer = ACAPI_CreateAttributeIndex((Int32)lua_tointeger(L, -1));
+    lua_pop(L, 1);
+
+    lua_getfield(L, 1, "floor");
+    if (!lua_isinteger(L, -1)) {
+        lua_pop(L, 1);
+        lua_getfield(L, 1, "storey");
+    }
+    elem.header.floorInd = (short)(lua_isinteger(L, -1) ? lua_tointeger(L, -1) : 1);
+    lua_pop(L, 1);
+
+    API_Guid createdGuid = APINULLGuid;
+    char errorMsg[256];
+    GSErrCode err = ACAPI_CallUndoableCommand("Create Slab", [&]() -> GSErrCode {
+        GSErrCode e = ACAPI_Element_Create(&elem, &memo);
+        if (e != NoError) {
+            std::sprintf(errorMsg, "addSlab failed: err=%d", (int)e);
+            return e;
+        }
+        createdGuid = elem.header.guid;
+        return NoError;
+    });
+
+    ACAPI_DisposeElemMemoHdls(&memo);
+
+    if (err != NoError || createdGuid == APINULLGuid) {
+        lua_pushnil(L);
+        lua_pushstring(L, errorMsg);
+        return 2;
+    }
+
+    GS::UniString guidStr = APIGuidToString(createdGuid);
+    lua_pushstring(L, guidStr.ToCStr().Get());
+    return 1;
+}
+
+static int AddRoof(lua_State* L)
+{
+    if (!lua_istable(L, 1)) {
+        lua_pushnil(L);
+        lua_pushstring(L, "expected a table argument");
+        return 2;
+    }
+
+    // Read poly
+    lua_getfield(L, 1, "poly");
+    if (!lua_istable(L, -1)) {
+        lua_pop(L, 1);
+        lua_pushnil(L);
+        lua_pushstring(L, "poly table required");
+        return 2;
+    }
+
+    Int32 nVerts = (Int32)lua_rawlen(L, -1);
+    if (nVerts < 3) {
+        lua_pop(L, 1);
+        lua_pushnil(L);
+        lua_pushstring(L, "poly needs at least 3 vertices");
+        return 2;
+    }
+
+    API_Element elem;
+    BNZeroMemory(&elem, sizeof(elem));
+    elem.header.type.typeID = API_RoofID;
+
+    API_ElementMemo memo;
+    BNZeroMemory(&memo, sizeof(memo));
+
+    memo.coords = (API_Coord**)BMAllocateHandle((nVerts + 1) * sizeof(API_Coord), ALLOCATE_CLEAR, 0);
+    if (memo.coords == nullptr) {
+        lua_pop(L, 1);
+        lua_pushnil(L);
+        lua_pushstring(L, "out of memory");
+        return 2;
+    }
+
+    for (Int32 i = 0; i < nVerts; i++) {
+        lua_rawgeti(L, -1, i + 1);
+        if (lua_istable(L, -1)) {
+            lua_getfield(L, -1, "x");
+            (*memo.coords)[i].x = lua_isnumber(L, -1) ? lua_tonumber(L, -1) : 0;
+            lua_pop(L, 1);
+            lua_getfield(L, -1, "y");
+            (*memo.coords)[i].y = lua_isnumber(L, -1) ? lua_tonumber(L, -1) : 0;
+            lua_pop(L, 1);
+        }
+        lua_pop(L, 1);
+    }
+    (*memo.coords)[nVerts] = (*memo.coords)[0];
+    lua_pop(L, 1); // pop poly table
+
+    // Read params
+    lua_getfield(L, 1, "thickness");
+    elem.roof.thickness = lua_isnumber(L, -1) ? lua_tonumber(L, -1) : 0.2;
+    lua_pop(L, 1);
+
+    lua_getfield(L, 1, "layer");
+    if (lua_isinteger(L, -1))
+        elem.header.layer = ACAPI_CreateAttributeIndex((Int32)lua_tointeger(L, -1));
+    lua_pop(L, 1);
+
+    lua_getfield(L, 1, "floor");
+    if (!lua_isinteger(L, -1)) {
+        lua_pop(L, 1);
+        lua_getfield(L, 1, "storey");
+    }
+    elem.header.floorInd = (short)(lua_isinteger(L, -1) ? lua_tointeger(L, -1) : 1);
+    lua_pop(L, 1);
+
+    API_Guid createdGuid = APINULLGuid;
+    char errorMsg[256];
+    GSErrCode err = ACAPI_CallUndoableCommand("Create Roof", [&]() -> GSErrCode {
+        GSErrCode e = ACAPI_Element_Create(&elem, &memo);
+        if (e != NoError) {
+            std::sprintf(errorMsg, "addRoof failed: err=%d", (int)e);
+            return e;
+        }
+        createdGuid = elem.header.guid;
+        return NoError;
+    });
+
+    ACAPI_DisposeElemMemoHdls(&memo);
 
     if (err != NoError || createdGuid == APINULLGuid) {
         lua_pushnil(L);
@@ -1058,10 +1467,10 @@ inline void Register(lua_State* L)
     lua_newtable(L);
 
     lua_pushcfunction(L, GetSelection);
-    lua_setfield(L, -2, "getsel");
+    lua_setfield(L, -2, "getSel");
 
     lua_pushcfunction(L, GetWall);
-    lua_setfield(L, -2, "getwall");
+    lua_setfield(L, -2, "getWall");
 
     lua_pushcfunction(L, GetElement);
     lua_setfield(L, -2, "get");
@@ -1070,37 +1479,46 @@ inline void Register(lua_State* L)
     lua_setfield(L, -2, "getCurrentFloor");
 
     lua_pushcfunction(L, GetPoly);
-    lua_setfield(L, -2, "getpoly");
+    lua_setfield(L, -2, "getPoly");
 
     lua_pushcfunction(L, GetParams);
-    lua_setfield(L, -2, "getparams");
+    lua_setfield(L, -2, "getParams");
 
     lua_pushcfunction(L, BeginUndo);
-    lua_setfield(L, -2, "beginundo");
+    lua_setfield(L, -2, "beginUndo");
 
     lua_pushcfunction(L, EndUndo);
-    lua_setfield(L, -2, "endundo");
+    lua_setfield(L, -2, "endUndo");
 
     lua_pushcfunction(L, SetWall);
-    lua_setfield(L, -2, "setwall");
+    lua_setfield(L, -2, "setWall");
 
     lua_pushcfunction(L, SetElement);
     lua_setfield(L, -2, "set");
 
     lua_pushcfunction(L, SetParams);
-    lua_setfield(L, -2, "setparams");
+    lua_setfield(L, -2, "setParams");
 
     lua_pushcfunction(L, FindObject);
-    lua_setfield(L, -2, "findobject");
+    lua_setfield(L, -2, "findObject");
 
     lua_pushcfunction(L, CreateElement);
     lua_setfield(L, -2, "create");
 
     lua_pushcfunction(L, AddWall);
-    lua_setfield(L, -2, "addwall");
+    lua_setfield(L, -2, "addWall");
 
     lua_pushcfunction(L, AddWindow);
-    lua_setfield(L, -2, "addwindow");
+    lua_setfield(L, -2, "addWindow");
+
+    lua_pushcfunction(L, AddDoor);
+    lua_setfield(L, -2, "addDoor");
+
+    lua_pushcfunction(L, AddSlab);
+    lua_setfield(L, -2, "addSlab");
+
+    lua_pushcfunction(L, AddRoof);
+    lua_setfield(L, -2, "addRoof");
 
     lua_setglobal(L, "acapi");
 }

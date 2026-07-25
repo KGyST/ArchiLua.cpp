@@ -23,3 +23,6 @@
 - `Geometry`: Convert `API_ElementMemo` data (Polygon, Hole, Edge) into Lua tables.
 - `Builder`: Handle `ACAPI_Element_Create` calls and GDL parameter mapping (`API_AddParID`).
 
+## 5. Unit Testing
+- `doctest` is available at `E:\Git\support\doctest`
+

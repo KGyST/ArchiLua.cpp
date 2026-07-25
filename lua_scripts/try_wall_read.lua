@@ -1,12 +1,12 @@
 print("--- Phase 2: Wall Read Test ---")
 
-local sel = acapi.getsel()
+local sel = acapi.getSel()
 print("Selected elements: " .. #sel)
 
 for i, guid in ipairs(sel) do
     print("  [" .. i .. "] " .. guid)
 
-    local wall = acapi.getwall(guid)
+    local wall = acapi.getWall(guid)
     if wall then
         print("    type: " .. wall.type)
         print("    layer: " .. wall.layer)
@@ -41,12 +41,12 @@ for i, guid in ipairs(sel) do
             end
         end
         -- Move the wall by (1, 1)
-        acapi.beginundo("Move wall 1,1")
-        acapi.setwall(guid, {
+        acapi.beginUndo("Move wall 1,1")
+        acapi.setWall(guid, {
             begC = { x = wall.begC.x + 1, y = wall.begC.y + 1 },
             endC = { x = wall.endC.x + 1, y = wall.endC.y + 1 }
         })
-        acapi.endundo()
+        acapi.endUndo()
     else
         print("    error: " .. guid .. " is not a wall")
     end

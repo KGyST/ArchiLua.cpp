@@ -35,7 +35,7 @@ msbuild ArchiLua.sln /p:Configuration="Debug 27" /p:Platform=x64
 |---|---|---|
 | `src/Bridge/LuaBridge.hpp` | `Bridge` class: wraps `lua_State*`, `Init`/`ExecuteScript`/`Shutdown` |
 | `src/Bridge/LuaDebugger.hpp` `.cpp` | DAP server: TCP listener, JSON/DAP protocol, Lua debug hook |
-| `src/API/APIModule.hpp` | Lua API functions (`getsel`, `getwall`, `get`, `getpoly`, `getparams`) |
+| `src/API/APIModule.hpp` | Lua API functions (`getSel`, `getWall`, `get`, `getPoly`, `getParams`, `setWall`, `addWall`, `addWindow`, etc.) |
 | `src/Console/LuaConsole.hpp` | Overrides Lua `print()` → `ACAPI_WriteReport` |
 | `src/ArchiLua.cpp` | DLL entry, `CheckEnvironment`, `RegisterInterface`, `Initialize`, `MenuCommandHandler` |
 | `deps/CMakeLists.txt` | Lua 5.4.7 FetchContent, generates `ArchiLuaDeps.props` |
@@ -46,13 +46,14 @@ msbuild ArchiLua.sln /p:Configuration="Debug 27" /p:Platform=x64
 
 All headers are explicitly listed in `ClInclude` in `ArchiLua.vcxproj` so they appear in Visual Studio's Solution Explorer. When adding a new header, add it to the `ClInclude` group too.
 
-## Build automation
+## Build
 
-When building, first check if ArchiCAD (process name `ArchiCAD`) is running:
-- **Not running** → build Debug, then notify user to start ArchiCAD and test.
-- **Running** → skip Debug (PDB locked). Build Release instead.
+**Always build `Debug 27`.**
+`assert()` is the runtime check mechanism — it's active in Debug CRT and the reason we use the Debug configuration.
+Release builds are used only for final packaging; never for development iteration.
 
-This avoids C1041 PDB contention errors. Do NOT kill ArchiCAD automatically.
+If ArchiCAD is running and locks the `.pdb`, recompile, then restart ArchiCAD to load the updated add-on.
+Do NOT kill ArchiCAD automatically.
 
 ## Common pitfalls
 

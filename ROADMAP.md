@@ -45,17 +45,39 @@
 - [x] **Object Finder:** `acapi.findobject(name)` searches Library Part by name via `ACAPI_LibraryPart_Search`, returns `libInd` + display name.
 - [x] **Placement:** `acapi.create(libInd, position, params)` wraps `ACAPI_Element_Create` with optional initial GDL parameter overrides.
 
-## Phase 3.5: Extending Command and Element List
-- [ ] **Create Objects from Scratch:** (Simplest possible) Walls
-  - Advancing by creating polygonal walls (supporting `API_ElementMemo` geometry injection)
-  - Extending wall parametrization
-- [ ] **Doors and Windows:** into the (selected or active) wall, taking care of Wall side and Mirrored/Not mirrored
-  - Wall Addons and host wall coordinate system alignment mapping
-- [ ] **Roofs and Slabs:** creation, analogous to the Walls
+## Phase 3.5: Element Creation ✓
+- [x] **Create Wall:** `acapi.addWall({begC={x,y}, endC={x,y}, height, thickness, layer})` — creates a new wall element via `ACAPI_Element_Create` wrapped in an undoable command.
+- [x] **Create Window in Wall:** `acapi.addWindow(wallGuid, {objLoc, height, width, sillHeight, wallSide, mirrored})` — places a window in a straight wall with side/mirror control.
+- [x] **Example Script:** `lua_scripts/try_add_wall.lua` demonstrates wall + window creation.
+- [x] **Polygonal Walls:** `addWall` with `poly` table for polygonal wall geometry via `API_ElementMemo.coords`.
+- [x] **Wall Side + Mirroring:** `addWindow` with `wallSide` ("inside"/"outside") and `mirrored` params. `addDoor` analogous.
+- [x] **Doors:** `acapi.addDoor(wallGuid, params)` — places a door in a wall (mirrors `addWindow` with `API_DoorID`).
+- [x] **Slabs:** `acapi.addSlab({poly, thickness, layer, floor})` — creates a polygonal slab element.
+- [x] **Roofs:** `acapi.addRoof({poly, thickness, layer, floor})` — creates a polygonal roof element.
 
-## Phase 3.5: Element Creation (Wall) ✓
-- [x] **Create Wall:** `acapi.addwall({begC={x,y}, endC={x,y}, height, thickness, layer})` — creates a new wall element via `ACAPI_Element_Create` wrapped in an undoable command.
-- [x] **Example Script:** `lua_scripts/try_add_wall.lua` demonstrates wall creation with full readback verification.
+## Phase 3.6: Modeless HTML/JS GUI (DG::WebView)
+- [ ] **ArchiCAD Native WebView Integration:**
+  - Switch to a new git branch `gui`.
+  - Implement a Modeless Palette using ArchiCAD's native `DG::WebView` control (0 extra binary dependencies, uses OS WebView2 engine).
+  - **Lifecycle & Persistence:** 
+    - Running the `.lua` script opens the Modeless Palette asynchronously.
+    - The `lua_State*` MUST remain alive in memory, bound to the C++ Palette instance's lifecycle (persistent state). DO NOT close the state upon script return.
+  - **Single-File Architecture:** 
+    - The `.lua` script contains the embedded HTML/JS string, initializes the GUI, and registers all EDT callbacks within the same file.
+  - **IPC & Event Dispatcher Table (EDT):** 
+    - The `.lua` script defines a global callback table, e.g., `UI_EVENTS = { ["btn_pick"] = function() ... end }`.
+    - **Primary IPC mechanism:** JS calls `window.chrome.webview.postMessage(jsonPayload)` to send UI events to C++. C++ parses the payload and dispatches it to the corresponding function in `UI_EVENTS`. (Native `bindEvent` wrapper may be considered only as a fallback).
+  - **Thread & Main-Loop Safety:** 
+    - Ensure all JS-initiated IPC callbacks land safely on ArchiCAD's main thread before invoking Lua EDT functions or executing `ACAPI` calls.
+  - **PoC Verification:** 
+    - Clicking the `<button id="btn_pick">Pick Wall</button>` triggers `ACAPI_Selection_Get` via C++.
+    - C++ passes the selected wall's GUID to the Lua EDT callback.
+    - Lua updates the HTML DOM via WebView message execution to display the GUID.
+  - **Next Step (After manual PoC verification):** 
+    - Add numeric inputs and a placement button to insert a window into the selected wall at a specific position.
+- [ ] **Windows Registry Handling:**
+  - Persist GUI input field values into Windows Registry under `HKCU\Software\Samu\ArchiLua`.
+  - Create Win32 Registry C++ helper wrappers based on `CommonCppLibs` and expose them to Lua (`acapi.regRead`, `acapi.regWrite`).
 
 ## Phase 4: Stability & Logic (The MVP)
 - [ ] **GC Safety:** C++ side `collectgarbage("stop")` before ACAPI calls and `collectgarbage("collect")` on scope exit.

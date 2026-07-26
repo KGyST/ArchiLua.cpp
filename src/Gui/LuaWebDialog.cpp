@@ -4,32 +4,21 @@
 #include "ArchiLua.hpp"
 #include "LuaWebDialog.hpp"
 #include "../Bridge/LuaBridge.hpp"
+#include "AC27/APICommon.h"
 
 namespace ArchiLua {
 
-// --- JS value helpers ---
+// --- Pick a wall (interactive) ---
 
-static GS::UniString GetStringFromJSArg(GS::Ref<JS::Base> jsVariable)
+static GS::UniString PickAWall()
 {
-    GS::Ref<JS::Value> jsValue = GS::DynamicCast<JS::Value>(jsVariable);
-    if (DBVERIFY(jsValue != nullptr && jsValue->GetType() == JS::Value::STRING))
-        return jsValue->GetString();
-    return GS::EmptyUniString;
-}
-
-template<class Type>
-static GS::Ref<JS::Base> ToJSValue(const Type& cppVariable)
-{
-    return new JS::Value(cppVariable);
-}
-
-static GS::Ref<JS::Base> GUIDsToJSArray(const GS::Array<API_Guid>& guids)
-{
-    GS::Ref<JS::Array> jsArr = new JS::Array();
-    for (const API_Guid& guid : guids) {
-        jsArr->AddItem(ToJSValue(APIGuidToString(guid)));
-    }
-    return jsArr;
+    API_Guid guid = APINULLGuid;
+    API_Coord3D clickPos;
+    bool ok = ClickAnElem("Click a wall to select it", API_WallID,
+                          nullptr, nullptr, &guid, &clickPos);
+    if (ok && guid != APINULLGuid)
+        return APIGuidToString(guid);
+    return {};
 }
 
 // --- Static GUID / RefId ---
@@ -81,25 +70,13 @@ GSErrCode __ACENV_CALL LuaWebDialog::PaletteAPIControlCallBack(
     return NoError;
 }
 
-static GS::Array<API_Guid> GetSelectedGUIDs()
-{
-    API_SelectionInfo selectionInfo;
-    GS::Array<API_Neig> selNeigs;
-    ACAPI_Selection_Get(&selectionInfo, &selNeigs, false, false);
-    BMKillHandle((GSHandle*)&selectionInfo.marquee.coords);
-
-    GS::Array<API_Guid> guids;
-    for (const API_Neig& neig : selNeigs)
-        guids.Push(neig.guid);
-    return guids;
-}
-
 static void RegisterJSObject(DG::Browser& browser)
 {
     JS::Object* jsArchilua = new JS::Object("archilua");
 
-    jsArchilua->AddItem(new JS::Function("GetSelectedElements", [] (GS::Ref<JS::Base>) {
-        return GUIDsToJSArray(GetSelectedGUIDs());
+    jsArchilua->AddItem(new JS::Function("PickWall", [] (GS::Ref<JS::Base>) {
+        GS::UniString guidStr = PickAWall();
+        return new JS::Value(!guidStr.IsEmpty() ? guidStr : GS::UniString(""));
     }));
 
     browser.RegisterAsynchJSObject(jsArchilua);
@@ -122,18 +99,18 @@ LuaWebDialog::LuaWebDialog()
         L"button:hover{background:#1177bb;}"
         L"#result{margin-top:12px;padding:8px;background:#2d2d2d;border-radius:3px;font-size:13px;white-space:pre-wrap;word-break:break-all;}"
         L"</style></head><body>"
-        L"<button id='btnPick' onclick='pickWall()'>Pick Selected Wall</button>"
-        L"<div id='result'>Click the button with a wall selected.</div>"
+        L"<button id='btnPick' onclick='pickWall()'>Pick Wall</button>"
+        L"<div id='result'>Press button then click a wall in ArchiCAD.</div>"
         L"<script>"
         L"function pickWall(){"
         L"  var r=document.getElementById('result');"
-        L"  r.textContent='Fetching...';"
+        L"  r.textContent='Click a wall in the ArchiCAD viewport...';"
         L"  try{"
-        L"    var guids=archilua.GetSelectedElements();"
-        L"    if(guids&&guids.length>0){"
-        L"      r.textContent='GUID: '+guids[0];"
+        L"    var guid=archilua.PickWall();"
+        L"    if(guid&&guid.length>0){"
+        L"      r.textContent='GUID: '+guid;"
         L"    }else{"
-        L"      r.textContent='No elements selected.';"
+        L"      r.textContent='Cancelled (pressed Escape or clicked empty space).';"
         L"    }"
         L"  }catch(e){"
         L"    r.textContent='Error: '+e.message;"

@@ -7,6 +7,31 @@
 
 namespace ArchiLua {
 
+// --- JS value helpers ---
+
+static GS::UniString GetStringFromJSArg(GS::Ref<JS::Base> jsVariable)
+{
+    GS::Ref<JS::Value> jsValue = GS::DynamicCast<JS::Value>(jsVariable);
+    if (DBVERIFY(jsValue != nullptr && jsValue->GetType() == JS::Value::STRING))
+        return jsValue->GetString();
+    return GS::EmptyUniString;
+}
+
+template<class Type>
+static GS::Ref<JS::Base> ToJSValue(const Type& cppVariable)
+{
+    return new JS::Value(cppVariable);
+}
+
+static GS::Ref<JS::Base> GUIDsToJSArray(const GS::Array<API_Guid>& guids)
+{
+    GS::Ref<JS::Array> jsArr = new JS::Array();
+    for (const API_Guid& guid : guids) {
+        jsArr->AddItem(ToJSValue(APIGuidToString(guid)));
+    }
+    return jsArr;
+}
+
 // --- Static GUID / RefId ---
 
 const GS::Guid& LuaWebDialog::PaletteGuid()
@@ -56,6 +81,30 @@ GSErrCode __ACENV_CALL LuaWebDialog::PaletteAPIControlCallBack(
     return NoError;
 }
 
+static GS::Array<API_Guid> GetSelectedGUIDs()
+{
+    API_SelectionInfo selectionInfo;
+    GS::Array<API_Neig> selNeigs;
+    ACAPI_Selection_Get(&selectionInfo, &selNeigs, false, false);
+    BMKillHandle((GSHandle*)&selectionInfo.marquee.coords);
+
+    GS::Array<API_Guid> guids;
+    for (const API_Neig& neig : selNeigs)
+        guids.Push(neig.guid);
+    return guids;
+}
+
+static void RegisterJSObject(DG::Browser& browser)
+{
+    JS::Object* jsArchilua = new JS::Object("archilua");
+
+    jsArchilua->AddItem(new JS::Function("GetSelectedElements", [] (GS::Ref<JS::Base>) {
+        return GUIDsToJSArray(GetSelectedGUIDs());
+    }));
+
+    browser.RegisterAsynchJSObject(jsArchilua);
+}
+
 // --- Constructor / Destructor ---
 
 LuaWebDialog::LuaWebDialog()
@@ -66,12 +115,34 @@ LuaWebDialog::LuaWebDialog()
     Attach(*this);
     BeginEventProcessing();
 
-    browser.LoadHTML(
-        GS::UniString(L"<html><body style='background:#1e1e1e;color:#ccc;font-family:Segoe UI,sans-serif;padding:2em;'>"
-        L"<h2>ArchiLua Web GUI</h2>"
-        L"<p>WebView ready.</p>"
-        L"</body></html>")
-    );
+    browser.LoadHTML(GS::UniString(
+        L"<html><head><style>"
+        L"body{background:#1e1e1e;color:#ccc;font-family:Segoe UI,sans-serif;padding:16px;margin:0;}"
+        L"button{background:#0e639c;color:#fff;border:none;padding:8px 16px;font-size:14px;cursor:pointer;border-radius:3px;}"
+        L"button:hover{background:#1177bb;}"
+        L"#result{margin-top:12px;padding:8px;background:#2d2d2d;border-radius:3px;font-size:13px;white-space:pre-wrap;word-break:break-all;}"
+        L"</style></head><body>"
+        L"<button id='btnPick' onclick='pickWall()'>Pick Selected Wall</button>"
+        L"<div id='result'>Click the button with a wall selected.</div>"
+        L"<script>"
+        L"function pickWall(){"
+        L"  var r=document.getElementById('result');"
+        L"  r.textContent='Fetching...';"
+        L"  try{"
+        L"    var guids=archilua.GetSelectedElements();"
+        L"    if(guids&&guids.length>0){"
+        L"      r.textContent='GUID: '+guids[0];"
+        L"    }else{"
+        L"      r.textContent='No elements selected.';"
+        L"    }"
+        L"  }catch(e){"
+        L"    r.textContent='Error: '+e.message;"
+        L"  }"
+        L"}"
+        L"</script></body></html>"
+    ));
+
+    RegisterJSObject(browser);
 }
 
 LuaWebDialog::~LuaWebDialog()

@@ -78,6 +78,26 @@
 - [ ] **Windows Registry Handling:**
   - Persist GUI input field values into Windows Registry under `HKCU\Software\Samu\ArchiLua`.
   - Create Win32 Registry C++ helper wrappers based on `CommonCppLibs` and expose them to Lua (`acapi.regRead`, `acapi.regWrite`).
+	
+## Phase 3.7: PolygonReducer Port to ArchiLua (Interactive PoC)
+- [ ] **Reference Code Analysis:**
+  - Read reference implementation from `docs/reference/PolygonReducer.cpp` (or local repo reference).
+  - Identify required C++ Bridge extensions for `API_ElementMemo` handling:
+    - Ensure `acapi.getpoly(guid)` exports both vertex coordinates AND arc segments (`API_PolyArc` array) to Lua.
+- [ ] **C++ Metadata Bridge:**
+  - Ensure Lua can read/write element Property/ID metadata to store parent-child relationships (e.g. `acapi.setproperty(guid, key, value)` or storing `parentGuid`).
+- [ ] **Interactive Test Script (`lua_scripts/try_polygon_reducer.lua`):**
+  - **Single-File GUI:** Open a Modeless `DG::WebView` containing:
+    - Slider: target point count (3 to N).
+    - Entry: minimum edge length threshold.
+    - Button: "Pick Polyline/Slab".
+  - **Lua Preprocessing & Reduction Logic:**
+    - Implement arc vectorization (converting arcs into segmented vertices based on edge length).
+    - Implement collinear midpoint removal (filtering out redundant vertices on straight edges).
+    - Implement the core reduction algorithm in Lua based on the GUI controls.
+  - **Live Redraw & Metadata Tracking:**
+    - GUI callbacks trigger `acapi.drawfeedback(reducedPoly)` on slider/entry input for live preview.
+    - On confirmation/apply, create the new reduced element and attach metadata referencing the original parent GUID.
 
 ## Phase 4: Stability & Logic (The MVP)
 - [ ] **GC Safety:** C++ side `collectgarbage("stop")` before ACAPI calls and `collectgarbage("collect")` on scope exit.

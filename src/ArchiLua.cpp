@@ -12,6 +12,7 @@
 #include "Bridge/LuaBridge.hpp"
 #include "Console/LuaConsole.hpp"
 #include "Gui/LuaScriptDialog.hpp"
+#include "Gui/LuaWebDialog.hpp"
 
 #include "Logger/Logger.hpp"
 
@@ -39,6 +40,13 @@ static GSErrCode __ACENV_CALL MenuCommandHandler(const API_MenuParams* params)
     case 1:
         {
             auto* dlg = new LuaScriptDialog();
+            GetBridge().SetDialog(dlg);
+            dlg->Show();
+        }
+        break;
+    case 2:
+        {
+            auto* dlg = new LuaWebDialog();
             GetBridge().SetDialog(dlg);
             dlg->Show();
         }
@@ -100,6 +108,13 @@ GSErrCode __ACENV_CALL Initialize(void)
                                  API_PalEnabled_Detail + API_PalEnabled_Worksheet + API_PalEnabled_Layout,
                                  GSGuid2APIGuid(LuaScriptDialog::PaletteGuid()));
 
+    ACAPI_RegisterModelessWindow(LuaWebDialog::PaletteRefId(),
+                                 LuaWebDialog::PaletteAPIControlCallBack,
+                                 API_PalEnabled_FloorPlan + API_PalEnabled_Section + API_PalEnabled_Elevation +
+                                 API_PalEnabled_InteriorElevation + API_PalEnabled_3D +
+                                 API_PalEnabled_Detail + API_PalEnabled_Worksheet + API_PalEnabled_Layout,
+                                 GSGuid2APIGuid(LuaWebDialog::PaletteGuid()));
+
     return err;
 }
 
@@ -109,6 +124,7 @@ GSErrCode __ACENV_CALL Initialize(void)
 GSErrCode __ACENV_CALL FreeData(void)
 {
     ACAPI_UnregisterModelessWindow(LuaScriptDialog::PaletteRefId());
+    ACAPI_UnregisterModelessWindow(LuaWebDialog::PaletteRefId());
     GetBridge().CloseDialog();
     return NoError;
 }

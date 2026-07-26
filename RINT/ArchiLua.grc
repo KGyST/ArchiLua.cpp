@@ -7,8 +7,10 @@
 }
 
 'STR#' 32500 "ArchiLua Menu" {
+/* [   ] */    "Samu"
 /* [   ] */    "ArchiLua"
 /* [  1] */    "Hello ArchiLua"
+/* [  2] */    "Web GUI"
 }
 
 'GDLG'  LUA_RUNNER_DIALOG  Palette  0  0  400  100  "ArchiLua Script Runner" {
@@ -25,4 +27,12 @@
 3 "Static label: Script:"                           Text_ScriptLabel
 4 "Path to the Lua script to execute"               TextEdit_ScriptPath
 5 "Browse for a Lua script file"                    Button_Browse
+}
+
+'GDLG'  LUA_WEB_DIALOG  Palette | topCaption | close | grow   0   0  800  600  "ArchiLua Web" {
+/* [  1] */ Browser      0   0  800  600
+}
+
+'DLGH'  LUA_WEB_DIALOG  DLG_LuaWebDialog {
+1 "ArchiLua Web"       Browser_0
 }

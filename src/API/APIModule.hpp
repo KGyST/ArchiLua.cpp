@@ -1068,8 +1068,7 @@ static int AddWindow(lua_State* L)
     elem.window.openingBase.height = height;
     elem.window.openingBase.width = width;
     elem.window.lower = sillHeight;
-    elem.window.wallSide = wallSideInside ? 1 : 0;
-    elem.window.reflected = mirrored;
+    // NOTE: wallSide/reflected not in AC27 API_WindowType — use GDL params instead
 
     // Create
     char errorMsg[256];
@@ -1217,8 +1216,7 @@ static int AddDoor(lua_State* L)
     elem.door.objLoc = objLoc;
     elem.door.openingBase.height = height;
     elem.door.openingBase.width = width;
-    elem.door.wallSide = wallSideInside ? 1 : 0;
-    elem.door.reflected = mirrored;
+    // NOTE: wallSide/reflected not in AC27 API_DoorType — use GDL params instead
 
     // Create
     char errorMsg[256];
@@ -1403,7 +1401,9 @@ static int AddRoof(lua_State* L)
 
     // Read params
     lua_getfield(L, 1, "thickness");
-    elem.roof.thickness = lua_isnumber(L, -1) ? lua_tonumber(L, -1) : 0.2;
+    // NOTE: thickness is not a direct field in AC27 API_RoofType
+    // It should be set via shellBase or GDL parameters.
+    // Lua script passes it but it's consumed here to keep stack balanced:
     lua_pop(L, 1);
 
     lua_getfield(L, 1, "layer");

@@ -52,7 +52,7 @@ All headers are explicitly listed in `ClInclude` in `ArchiLua.vcxproj` so they a
 `assert()` is the runtime check mechanism — it's active in Debug CRT and the reason we use the Debug configuration.
 Release builds are used only for final packaging; never for development iteration.
 
-If ArchiCAD is running and locks the `.pdb`, recompile, then restart ArchiCAD to load the updated add-on.
+If ArchiCAD is running and locks the `.pdb` or `.apx` (LNK1104: cannot open file), report to the user and ask them to close ArchiCAD.
 Do NOT kill ArchiCAD automatically.
 
 ## Common pitfalls

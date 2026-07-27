@@ -19,7 +19,6 @@ static const char* kWebEventsKey = "ArchiLua_WebDialog_Events";
 
 static int L_PickWall(lua_State* L)
 {
-    ACAPI_WriteReport("[DBG] L_PickWall: entered", false);
     API_Guid guid = APINULLGuid;
     API_Coord3D clickPos;
     bool ok = ClickAnElem("Click a wall to select it", API_WallID,
@@ -77,9 +76,13 @@ static int L_SetWebResult(lua_State* L)
 static int L_ShowWebDialog(lua_State* L)
 {
     auto& bridge = GetBridge();
-    if (bridge.GetDialog() != nullptr) {
-        bridge.GetDialog()->Show();
-        return 0;
+    auto* existing = bridge.GetDialog();
+    if (existing) {
+        auto* webDlg = dynamic_cast<LuaWebDialog*>(existing);
+        if (webDlg) {
+            webDlg->Show();
+            return 0;
+        }
     }
     auto* dlg = new LuaWebDialog();
     bridge.SetDialog(dlg);
@@ -100,8 +103,6 @@ void RegisterWebUIFunctions(lua_State* L)
     lua_register(L, "SetWebResult", L_SetWebResult);
     lua_register(L, "PickWall", L_PickWall);
     lua_register(L, "ShowWebDialog", L_ShowWebDialog);
-
-    ACAPI_WriteReport("[DBG] Web UI Lua functions registered", false);
 }
 
 // ---------------------------------------------------------------------------
@@ -116,14 +117,25 @@ GS::UniString LuaWebDialog::DispatchUIEvent(const std::string& eventName)
 
     lua_pushcfunction(L, [](lua_State* L2) -> int {
         const char* name = lua_tostring(L2, 1);
+        if (!name)
+            return 0;
         lua_getfield(L2, LUA_REGISTRYINDEX, kWebEventsKey);
         if (!lua_istable(L2, -1)) {
             lua_pop(L2, 1);
             return 0;
         }
         lua_getfield(L2, -1, name);
-        if (lua_isfunction(L2, -1))
-            lua_pcall(L2, 0, 0, 0);
+        if (lua_isfunction(L2, -1)) {
+            if (lua_pcall(L2, 0, 0, 0) != LUA_OK) {
+                const char* err = lua_tostring(L2, -1);
+                if (err) ACAPI_WriteReport(err, true);
+                lua_pop(L2, 1);
+                lua_pop(L2, 1);
+                return 0;
+            }
+            lua_pop(L2, 1);
+            return 0;
+        }
         lua_pop(L2, 2);
         return 0;
     });

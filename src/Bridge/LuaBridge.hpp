@@ -71,10 +71,10 @@ public:
             fullPath = baseStr;
         }
 
-        const char* cPath = fullPath.ToCStr().Get();
+        std::string cPath(fullPath.ToCStr().Get());
 
         // Load file as a function (allows setting debug hook before execution)
-        if (luaL_loadfile(L, cPath) != LUA_OK) {
+        if (luaL_loadfile(L, cPath.c_str()) != LUA_OK) {
             const char* err = lua_tostring(L, -1);
             if (err) {
                 ACAPI_WriteReport(err, true);
@@ -101,7 +101,7 @@ public:
             }
             lua_pop(L, 1);
         } else {
-            ACAPI_WriteReport("Script finished successfully (check Report window for output)", true);
+            ACAPI_WriteReport("Script finished successfully (check Report window for output)", false);
         }
 
         // Clean up debug hook

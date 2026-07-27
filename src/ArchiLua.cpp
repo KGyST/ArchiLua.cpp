@@ -16,6 +16,8 @@
 
 #include "Logger/Logger.hpp"
 
+#include <string>
+
 using namespace ArchiLua;
 
 // ---------------------------------- Variables --------------------------------
@@ -34,18 +36,49 @@ Bridge& ArchiLua::GetBridge()
 //
 // =============================================================================
 
-// Embedded Lua that registers the onPickWall callback and shows the web dialog.
-// (Mirrors lua_scripts/try_web_gui.lua but avoids file-not-found at runtime.)
-static const char kTryWebGUI[] =
-    "RegisterWebEvent(\"onPickWall\", function()\n"
-    "    local guid = PickWall()\n"
-    "    if guid then\n"
-    "        SetWebResult(\"GUID: \" .. guid)\n"
-    "    else\n"
-    "        SetWebResult(\"Cancelled\")\n"
-    "    end\n"
-    "end)\n"
-    "ShowWebDialog()\n";
+static void ExecLuaSilent(const char* relPath)
+{
+    lua_State* L = GetBridge().State();
+    if (!L)
+        return;
+
+    GS::UniString uniPath;
+    if (strlen(relPath) >= 2 && relPath[1] == ':') {
+        uniPath = GS::UniString(relPath);
+    } else {
+        IO::Location ownLoc;
+        if (ACAPI_GetOwnLocation(&ownLoc) != NoError)
+            return;
+        ownLoc.DeleteLastLocalName();
+        GS::UniString baseStr;
+        ownLoc.ToPath(&baseStr);
+        baseStr.Append("\\");
+        baseStr.Append(relPath);
+        uniPath = baseStr;
+    }
+
+    std::string cPath(uniPath.ToCStr().Get());
+
+    if (luaL_loadfile(L, cPath.c_str()) != LUA_OK) {
+        const char* err = lua_tostring(L, -1);
+        if (err) ACAPI_WriteReport(err, true);
+        lua_pop(L, 1);
+        return;
+    }
+    if (lua_pcall(L, 0, 0, 0) != LUA_OK) {
+        const char* err = lua_tostring(L, -1);
+        if (err) ACAPI_WriteReport(err, true);
+        lua_pop(L, 1);
+        return;
+    }
+
+    // If no dialog was created by the script, create one now
+    if (GetBridge().GetDialog() == nullptr) {
+        auto* dlg = new LuaWebDialog();
+        GetBridge().SetDialog(dlg);
+        dlg->Show();
+    }
+}
 
 static GSErrCode __ACENV_CALL MenuCommandHandler(const API_MenuParams* params)
 {
@@ -58,16 +91,7 @@ static GSErrCode __ACENV_CALL MenuCommandHandler(const API_MenuParams* params)
         }
         break;
     case 2:
-        {
-            lua_State* L = GetBridge().State();
-            if (L && (luaL_loadstring(L, kTryWebGUI) == LUA_OK)) {
-                if (lua_pcall(L, 0, 0, 0) != LUA_OK) {
-                    const char* err = lua_tostring(L, -1);
-                    if (err) ACAPI_WriteReport(err, true);
-                    lua_pop(L, 1);
-                }
-            }
-        }
+        ExecLuaSilent("lua_scripts\\try_web_gui.lua");
         break;
     }
     return NoError;

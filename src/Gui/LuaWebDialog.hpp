@@ -6,7 +6,11 @@
 
 #include <string>
 
+struct lua_State;
+
 namespace ArchiLua {
+
+void RegisterWebUIFunctions(lua_State* L);
 
 class LuaWebDialog :
     public DG::Palette,
@@ -16,6 +20,7 @@ private:
     DG::Browser browser;
 
 public:
+    void ExecuteJS(const GS::UniString& js) { browser.ExecuteJS(js); }
     GS::UniString DispatchUIEvent(const std::string& eventName);
 
 public:

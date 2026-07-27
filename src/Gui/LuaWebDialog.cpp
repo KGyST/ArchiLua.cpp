@@ -11,39 +11,129 @@
 
 namespace ArchiLua {
 
+static const char* kWebEventsKey = "ArchiLua_WebDialog_Events";
+
 // ---------------------------------------------------------------------------
-// Pick a wall (interactive)
+// Lua-callable: PickWall() — interactive wall pick
 // ---------------------------------------------------------------------------
 
-static GS::UniString PickAWall()
+static int L_PickWall(lua_State* L)
 {
+    ACAPI_WriteReport("[DBG] L_PickWall: entered", false);
     API_Guid guid = APINULLGuid;
     API_Coord3D clickPos;
-    ACAPI_WriteReport("[DBG] PickAWall: before ClickAnElem", false);
     bool ok = ClickAnElem("Click a wall to select it", API_WallID,
                           nullptr, nullptr, &guid, &clickPos);
-    GS::UniString guidStr = APIGuidToString(guid);
-    char buf[256];
-    sprintf_s(buf, "[DBG] PickAWall: ok=%d guid=%s", ok, guidStr.ToCStr().Get());
-    ACAPI_WriteReport(buf, false);
-    if (ok && guid != APINULLGuid)
-        return guidStr;
-    ACAPI_WriteReport("[DBG] PickAWall: returning empty", false);
-    return {};
+    if (ok && guid != APINULLGuid) {
+        GS::UniString guidStr = APIGuidToString(guid);
+        lua_pushstring(L, guidStr.ToCStr().Get());
+        return 1;
+    }
+    lua_pushnil(L);
+    return 1;
 }
+
+// ---------------------------------------------------------------------------
+// Lua-callable: RegisterWebEvent(name, callback)
+// ---------------------------------------------------------------------------
+
+static int L_RegisterWebEvent(lua_State* L)
+{
+    const char* name = lua_tostring(L, 1);
+    if (!name || !lua_isfunction(L, 2))
+        return luaL_error(L, "RegisterWebEvent: expected string and function");
+
+    lua_getfield(L, LUA_REGISTRYINDEX, kWebEventsKey);
+    lua_pushvalue(L, 2);
+    lua_setfield(L, -2, name);
+    lua_pop(L, 1);
+    return 0;
+}
+
+// ---------------------------------------------------------------------------
+// Lua-callable: SetWebResult(text) — update the HTML result div
+// ---------------------------------------------------------------------------
+
+static int L_SetWebResult(lua_State* L)
+{
+    const char* text = lua_tostring(L, 1);
+    if (!text)
+        return 0;
+
+    auto& bridge = GetBridge();
+    auto* dlg = static_cast<LuaWebDialog*>(bridge.GetDialog());
+    if (dlg) {
+        char buf[512];
+        sprintf_s(buf, "document.getElementById('result').textContent='%s';", text);
+        dlg->ExecuteJS(GS::UniString(buf));
+    }
+    return 0;
+}
+
+// ---------------------------------------------------------------------------
+// Lua-callable: ShowWebDialog() — create and show the web palette
+// ---------------------------------------------------------------------------
+
+static int L_ShowWebDialog(lua_State* L)
+{
+    auto& bridge = GetBridge();
+    if (bridge.GetDialog() != nullptr) {
+        bridge.GetDialog()->Show();
+        return 0;
+    }
+    auto* dlg = new LuaWebDialog();
+    bridge.SetDialog(dlg);
+    dlg->Show();
+    return 0;
+}
+
+// ---------------------------------------------------------------------------
+// Register Web UI Lua functions in the Lua state
+// ---------------------------------------------------------------------------
+
+void RegisterWebUIFunctions(lua_State* L)
+{
+    lua_newtable(L);
+    lua_setfield(L, LUA_REGISTRYINDEX, kWebEventsKey);
+
+    lua_register(L, "RegisterWebEvent", L_RegisterWebEvent);
+    lua_register(L, "SetWebResult", L_SetWebResult);
+    lua_register(L, "PickWall", L_PickWall);
+    lua_register(L, "ShowWebDialog", L_ShowWebDialog);
+
+    ACAPI_WriteReport("[DBG] Web UI Lua functions registered", false);
+}
+
+// ---------------------------------------------------------------------------
+// DispatchUIEvent — route JS events to Lua callbacks
+// ---------------------------------------------------------------------------
 
 GS::UniString LuaWebDialog::DispatchUIEvent(const std::string& eventName)
 {
-    char buf[256];
-    sprintf_s(buf, "[DBG] DispatchUIEvent: eventName=%s", eventName.c_str());
-    ACAPI_WriteReport(buf, false);
-    if (eventName == "onPickWall") {
-        GS::UniString result = PickAWall();
-        sprintf_s(buf, "[DBG] DispatchUIEvent: result=%s", result.ToCStr().Get());
-        ACAPI_WriteReport(buf, false);
-        return result;
+    lua_State* L = GetBridge().State();
+    if (!L)
+        return {};
+
+    lua_pushcfunction(L, [](lua_State* L2) -> int {
+        const char* name = lua_tostring(L2, 1);
+        lua_getfield(L2, LUA_REGISTRYINDEX, kWebEventsKey);
+        if (!lua_istable(L2, -1)) {
+            lua_pop(L2, 1);
+            return 0;
+        }
+        lua_getfield(L2, -1, name);
+        if (lua_isfunction(L2, -1))
+            lua_pcall(L2, 0, 0, 0);
+        lua_pop(L2, 2);
+        return 0;
+    });
+    lua_pushstring(L, eventName.c_str());
+    if (lua_pcall(L, 1, 0, 0) != LUA_OK) {
+        const char* err = lua_tostring(L, -1);
+        if (err)
+            ACAPI_WriteReport(err, true);
+        lua_pop(L, 1);
     }
-    ACAPI_WriteReport("[DBG] DispatchUIEvent: unknown event, returning empty", false);
     return {};
 }
 
@@ -104,25 +194,11 @@ static void RegisterJSObject(DG::Browser& browser, LuaWebDialog* dlg)
 {
     JS::Object* jsArchilua = new JS::Object("archilua");
 
-    jsArchilua->AddItem(new JS::Function("DispatchEvent", [dlg, &browser] (GS::Ref<JS::Base> params) {
-        ACAPI_WriteReport("[DBG] JS DispatchEvent: entered", false);
+    jsArchilua->AddItem(new JS::Function("DispatchEvent", [dlg] (GS::Ref<JS::Base> params) {
         GS::Ref<JS::Value> jsValue = GS::DynamicCast<JS::Value>(params);
         if (jsValue != nullptr && jsValue->GetType() == JS::Value::STRING) {
             GS::UniString eventName = jsValue->GetString();
-            char buf[256];
-            sprintf_s(buf, "[DBG] JS DispatchEvent: eventName=%s", eventName.ToCStr().Get());
-            ACAPI_WriteReport(buf, false);
-            GS::UniString result = dlg->DispatchUIEvent(std::string(eventName.ToCStr().Get()));
-            sprintf_s(buf, "[DBG] JS DispatchEvent: result=%s", result.ToCStr().Get());
-            ACAPI_WriteReport(buf, false);
-            if (!result.IsEmpty()) {
-                sprintf_s(buf, "document.getElementById('result').textContent='GUID: %s';", result.ToCStr().Get());
-                browser.ExecuteJS(GS::UniString(buf));
-            } else {
-                browser.ExecuteJS("document.getElementById('result').textContent='Cancelled (pressed Escape or clicked empty space).';");
-            }
-        } else {
-            ACAPI_WriteReport("[DBG] JS DispatchEvent: params is not STRING", false);
+            dlg->DispatchUIEvent(std::string(eventName.ToCStr().Get()));
         }
         return GS::Ref<JS::Base>(new JS::Value());
     }));
@@ -147,8 +223,7 @@ static GS::UniString BuildHTML()
         L"<div id='result'>Press button then click a wall in ArchiCAD.</div>"
         L"<script>"
         L"function pickWall(){"
-        L"  var r=document.getElementById('result');"
-        L"  r.textContent='Click a wall in the ArchiCAD viewport...';"
+        L"  document.getElementById('result').textContent='Click a wall in the ArchiCAD viewport...';"
         L"  archilua.DispatchEvent('onPickWall');"
         L"}"
         L"</script></body></html>"

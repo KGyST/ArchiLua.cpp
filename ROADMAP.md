@@ -55,29 +55,30 @@
 - [x] **Slabs:** `acapi.addSlab({poly, thickness, layer, floor})` — creates a polygonal slab element.
 - [x] **Roofs:** `acapi.addRoof({poly, thickness, layer, floor})` — creates a polygonal roof element.
 
-## Phase 3.6: Modeless HTML/JS GUI (DG::WebView)
-- [ ] **ArchiCAD Native WebView Integration:**
-  - Switch to a new git branch `gui`.
-  - Implement a Modeless Palette using ArchiCAD's native `DG::WebView` control (0 extra binary dependencies, uses OS WebView2 engine).
-  - **Lifecycle & Persistence:** 
-    - Running the `.lua` script opens the Modeless Palette asynchronously.
-    - The `lua_State*` MUST remain alive in memory, bound to the C++ Palette instance's lifecycle (persistent state). DO NOT close the state upon script return.
-  - **Single-File Architecture:** 
-    - The `.lua` script contains the embedded HTML/JS string, initializes the GUI, and registers all EDT callbacks within the same file.
-  - **IPC & Event Dispatcher Table (EDT):** 
-    - The `.lua` script defines a global callback table, e.g., `UI_EVENTS = { ["btn_pick"] = function() ... end }`.
-    - **Primary IPC mechanism:** JS calls `window.chrome.webview.postMessage(jsonPayload)` to send UI events to C++. C++ parses the payload and dispatches it to the corresponding function in `UI_EVENTS`. (Native `bindEvent` wrapper may be considered only as a fallback).
-  - **Thread & Main-Loop Safety:** 
-    - Ensure all JS-initiated IPC callbacks land safely on ArchiCAD's main thread before invoking Lua EDT functions or executing `ACAPI` calls.
-  - **PoC Verification:** 
-    - Clicking the `<button id="btn_pick">Pick Wall</button>` triggers `ACAPI_Selection_Get` via C++.
-    - C++ passes the selected wall's GUID to the Lua EDT callback.
-    - Lua updates the HTML DOM via WebView message execution to display the GUID.
-  - **Next Step (After manual PoC verification):** 
-    - Add numeric inputs and a placement button to insert a window into the selected wall at a specific position.
-- [ ] **Windows Registry Handling:**
-  - Persist GUI input field values into Windows Registry under `HKCU\Software\Samu\ArchiLua`.
-  - Create Win32 Registry C++ helper wrappers based on `CommonCppLibs` and expose them to Lua (`acapi.regRead`, `acapi.regWrite`).
+## Phase 3.6: Event Dispatcher Table (EDT) — Lua-Driven Web GUI
+- [x] **Web Palette Skeleton:** Modeless `DG::Palette` with `DG::Browser` (WebView2).
+  - HTML/JS embedded in C++ (`BuildHTML()`), JS bridge via `RegisterAsynchJSObject`.
+  - `archilua.DispatchEvent(eventName)` calls C++ which routes to Lua callbacks.
+- [x] **EDT Core — JS → Lua Dispatch:**
+  - `RegisterWebEvent(name, callback)` exposed to Lua — stores callbacks in a registry table.
+  - `SetWebResult(text)` — calls `browser.ExecuteJS()` to update the HTML result div.
+  - `PickWall()` — Lua-callable wrapper around `ClickAnElem(API_WallID)`.
+  - `ShowWebDialog()` — creates and shows the `LuaWebDialog` palette.
+  - `DispatchUIEvent()` looks up the event name in the Lua callback table, calls it via `lua_pcall`.
+- [ ] **Menu Restructure:**
+  - **Menu 1** (dev tool): File picker to load + run any `.lua` script. The script can call `ShowWebDialog()` to display a web UI.
+  - **Menu 2** (shortcut): Loads `try_web_gui.lua` directly (shorthand for the common path).
+  - **Long term:** Menu 1 stays as dev/scripting tool; Menu 2 becomes a plugin loader for `.lua` plugins.
+- [ ] **Single-File Script Pattern:** A `.lua` script calls `RegisterWebEvent()` for each UI event, then `ShowWebDialog()` — the script IS the plugin, self-contained.
+- [ ] **IPC Chain (verified working):**
+  JS `archilua.DispatchEvent('onPickWall')` →
+  C++ `DispatchUIEvent` → Lua callback →
+  C++ `ClickAnElem` → result to Lua →
+  `SetWebResult()` → `ExecuteJS` → HTML DOM updated.
+- [ ] **Next Steps:**
+  - Add more UI controls (numeric inputs, dropdowns, slider) and corresponding EDT events.
+  - Place a window into the picked wall via `acapi.addWindow` from the Lua callback.
+  - Persist GUI values to Registry.
 	
 ## Phase 3.7: PolygonReducer Port to ArchiLua (Interactive PoC)
 - [ ] **Reference Code Analysis:**

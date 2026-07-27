@@ -34,6 +34,19 @@ Bridge& ArchiLua::GetBridge()
 //
 // =============================================================================
 
+// Embedded Lua that registers the onPickWall callback and shows the web dialog.
+// (Mirrors lua_scripts/try_web_gui.lua but avoids file-not-found at runtime.)
+static const char kTryWebGUI[] =
+    "RegisterWebEvent(\"onPickWall\", function()\n"
+    "    local guid = PickWall()\n"
+    "    if guid then\n"
+    "        SetWebResult(\"GUID: \" .. guid)\n"
+    "    else\n"
+    "        SetWebResult(\"Cancelled\")\n"
+    "    end\n"
+    "end)\n"
+    "ShowWebDialog()\n";
+
 static GSErrCode __ACENV_CALL MenuCommandHandler(const API_MenuParams* params)
 {
     switch (params->menuItemRef.itemIndex) {
@@ -46,9 +59,14 @@ static GSErrCode __ACENV_CALL MenuCommandHandler(const API_MenuParams* params)
         break;
     case 2:
         {
-            auto* dlg = new LuaWebDialog();
-            GetBridge().SetDialog(dlg);
-            dlg->Show();
+            lua_State* L = GetBridge().State();
+            if (L && (luaL_loadstring(L, kTryWebGUI) == LUA_OK)) {
+                if (lua_pcall(L, 0, 0, 0) != LUA_OK) {
+                    const char* err = lua_tostring(L, -1);
+                    if (err) ACAPI_WriteReport(err, true);
+                    lua_pop(L, 1);
+                }
+            }
         }
         break;
     }
@@ -99,6 +117,7 @@ GSErrCode __ACENV_CALL Initialize(void)
 
     // Start Lua state + DAP server so VSCodium can attach before dialog opens
     GetBridge().Init();
+    RegisterWebUIFunctions(GetBridge().State());
 
     // Register modeless window so ArchiCAD doesn't unload the add-on while the palette is open
     ACAPI_RegisterModelessWindow(LuaScriptDialog::PaletteRefId(),

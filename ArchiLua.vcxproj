@@ -249,6 +249,7 @@
     <None Include="lua_scripts\try_hello.lua" />
     <None Include="lua_scripts\try_selection.lua" />
     <None Include="lua_scripts\try_wall_read.lua" />
+    <None Include="lua_scripts\try_web_gui.lua" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">
@@ -263,4 +264,10 @@
     <Natvis Include="$(NatVisRoot)\IO.natvis" />
     <Natvis Include="$(NatVisRoot)\ODB.natvis" />
   </ItemGroup>
+  <!-- Copy lua_scripts next to the .apx so Bridge::ExecuteScript can find them at runtime -->
+  <PropertyGroup>
+    <PostBuildEvent>
+xcopy /y /i /e "$(ProjectDir)lua_scripts\*.*" "$(OutDir)lua_scripts\"
+    </PostBuildEvent>
+  </PropertyGroup>
 </Project>

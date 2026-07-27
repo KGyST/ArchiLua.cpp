@@ -4,6 +4,8 @@
 #include "DGBrowser.hpp"
 #include "APIdefs_Interface.h"
 
+#include <string>
+
 namespace ArchiLua {
 
 class LuaWebDialog :
@@ -12,6 +14,9 @@ class LuaWebDialog :
 {
 private:
     DG::Browser browser;
+
+public:
+    GS::UniString DispatchUIEvent(const std::string& eventName);
 
 public:
     LuaWebDialog();

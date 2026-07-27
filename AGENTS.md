@@ -14,8 +14,8 @@ cmake -S . -B build
 cmake --build build --config Debug
 cmake --build build --config Release
 
-# 2. Build add-on
-msbuild ArchiLua.sln /p:Configuration="Debug 27" /p:Platform=x64
+# 2. Build add-on (always clean first to force GRC resource recompilation)
+msbuild ArchiLua.sln /p:Configuration="Debug 27" /p:Platform=x64 "/t:Clean;Build"
 ```
 
 ## Critical constraints

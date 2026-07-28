@@ -55,7 +55,7 @@
 - [x] **Slabs:** `acapi.addSlab({poly, thickness, layer, floor})` — creates a polygonal slab element.
 - [x] **Roofs:** `acapi.addRoof({poly, thickness, layer, floor})` — creates a polygonal roof element.
 
-## Phase 3.6: Event Dispatcher Table (EDT) — Lua-Driven Web GUI
+## Phase 3.6: Event Dispatcher Table (EDT) — Lua-Driven Web GUI ✓
 - [x] **Web Palette Skeleton:** Modeless `DG::Palette` with `DG::Browser` (WebView2).
   - HTML/JS embedded in C++ (`BuildHTML()`), JS bridge via `RegisterAsynchJSObject`.
   - `archilua.DispatchEvent(eventName)` calls C++ which routes to Lua callbacks.
@@ -65,20 +65,22 @@
   - `PickWall()` — Lua-callable wrapper around `ClickAnElem(API_WallID)`.
   - `ShowWebDialog()` — creates and shows the `LuaWebDialog` palette.
   - `DispatchUIEvent()` looks up the event name in the Lua callback table, calls it via `lua_pcall`.
-- [ ] **Menu Restructure:**
+- [x] **Menu Restructure:**
   - **Menu 1** (dev tool): File picker to load + run any `.lua` script. The script can call `ShowWebDialog()` to display a web UI.
   - **Menu 2** (shortcut): Loads `try_web_gui.lua` directly (shorthand for the common path).
   - **Long term:** Menu 1 stays as dev/scripting tool; Menu 2 becomes a plugin loader for `.lua` plugins.
-- [ ] **Single-File Script Pattern:** A `.lua` script calls `RegisterWebEvent()` for each UI event, then `ShowWebDialog()` — the script IS the plugin, self-contained.
-- [ ] **IPC Chain (verified working):**
+- [x] **Single-File Script Pattern:** A `.lua` script calls `RegisterWebEvent()` for each UI event, then `ShowWebDialog()` — the script IS the plugin, self-contained.
+- [x] **IPC Chain (verified working):**
   JS `archilua.DispatchEvent('onPickWall')` →
   C++ `DispatchUIEvent` → Lua callback →
   C++ `ClickAnElem` → result to Lua →
   `SetWebResult()` → `ExecuteJS` → HTML DOM updated.
-- [ ] **Next Steps:**
+- [ ] **Window Placing Test Script:** Place a window into the picked wall via `acapi.addWindow` from the Lua callback.
   - Add more UI controls (numeric inputs, dropdowns, slider) and corresponding EDT events.
-  - Place a window into the picked wall via `acapi.addWindow` from the Lua callback.
-  - Persist GUI values to Registry.
+	- The GUI should have a Button to add a windows, entries for Window X and Y (Sill) positions and Width and Height. When Button is pressed, a new Window is added having given parameters.
+- [ ] **Windows Registry Handling:**
+  - Persist GUI input field values into Windows Registry under `HKCU\Software\Samu\ArchiLua\try_web_gui`.
+  - Create Win32 Registry C++ helper wrappers based on `CommonCppLibs` and expose them to Lua (`acapi.regRead`, `acapi.regWrite`).
 	
 ## Phase 3.7: PolygonReducer Port to ArchiLua (Interactive PoC)
 - [ ] **Reference Code Analysis:**

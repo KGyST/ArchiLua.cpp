@@ -87,6 +87,11 @@ cmake -S deps -B deps/build          # re-generate deps
 msbuild ... /t:Clean                 # clean build outputs
 ```
 
+# Commit conventions
+- **EoD / EoW / EoY** — End of Day, End of Week, End of Year temp commits (like `_temp`).
+- EoD messages must start with `Eod`.
+- These are placeholder commits; when a real feature commit is done, amend into it.
+
 # Project Rules
 - Always consult `Architectural Decision Records/` before making significant architectural changes.
 - If you implement any mock or stub, you MUST create a new ADR file in `Architectural Decision Records/` following the standard template.

@@ -84,7 +84,12 @@ static int L_ShowWebDialog(lua_State* L)
             return 0;
         }
     }
-    auto* dlg = new LuaWebDialog();
+    LuaWebDialog* dlg;
+    if (lua_gettop(L) >= 1 && lua_isstring(L, 1)) {
+        dlg = new LuaWebDialog(GS::UniString(lua_tostring(L, 1)));
+    } else {
+        dlg = new LuaWebDialog();
+    }
     bridge.SetDialog(dlg);
     dlg->Show();
     return 0;
@@ -245,6 +250,11 @@ static GS::UniString BuildHTML()
 // --- Constructor / Destructor ---
 
 LuaWebDialog::LuaWebDialog()
+    : LuaWebDialog(BuildHTML())
+{
+}
+
+LuaWebDialog::LuaWebDialog(const GS::UniString& html)
     : DG::Palette(ACAPI_GetOwnResModule(), LUA_WEB_DIALOG,
                   ACAPI_GetOwnResModule(), PaletteGuid())
     , browser(GetReference(), Browser_Web)
@@ -252,7 +262,7 @@ LuaWebDialog::LuaWebDialog()
     Attach(*this);
     BeginEventProcessing();
 
-    browser.LoadHTML(BuildHTML());
+    browser.LoadHTML(html);
     RegisterJSObject(browser, this);
 }
 

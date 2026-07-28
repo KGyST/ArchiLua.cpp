@@ -25,6 +25,7 @@ public:
 
 public:
     LuaWebDialog();
+    explicit LuaWebDialog(const GS::UniString& html);
     ~LuaWebDialog();
 
     static const GS::Guid& PaletteGuid();

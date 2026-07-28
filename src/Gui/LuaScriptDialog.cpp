@@ -54,7 +54,6 @@ GSErrCode __ACENV_CALL LuaScriptDialog::PaletteAPIControlCallBack(Int32 referenc
 LuaScriptDialog::LuaScriptDialog()
     : DG::Palette(ACAPI_GetOwnResModule(), LUA_RUNNER_DIALOG, ACAPI_GetOwnResModule(), PaletteGuid())
     , runButton(GetReference(), DG_OK)
-    , cancelButton(GetReference(), DG_CANCEL)
     , scriptPathEdit(GetReference(), TextEdit_ScriptPath)
     , browseButton(GetReference(), Button_Browse)
 {
@@ -75,6 +74,7 @@ LuaScriptDialog::~LuaScriptDialog()
 
 void LuaScriptDialog::PanelCloseRequested(const DG::PanelCloseRequestEvent& ev, bool* accepted)
 {
+    Hide();
     *accepted = true;
 }
 

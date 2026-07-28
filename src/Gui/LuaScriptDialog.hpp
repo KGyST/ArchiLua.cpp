@@ -13,7 +13,6 @@ class LuaScriptDialog :
 {
 private:
   DG::Button      runButton;
-  DG::Button      cancelButton;
   DG::TextEdit    scriptPathEdit;
   DG::Button      browseButton;
 

@@ -154,6 +154,12 @@ GS::UniString LuaWebDialog::DispatchUIEvent(const std::string& eventName)
     if (!L)
         return {};
 
+    auto& debugger = GetBridge().m_debugger;
+    if (debugger.HasClient()) {
+        lua_sethook(L, LuaDebugger::DebugHook, LUA_MASKLINE, 0);
+        debugger.NotifyRunStarting();
+    }
+
     lua_pushcfunction(L, [](lua_State* L2) -> int {
         const char* name = lua_tostring(L2, 1);
         if (!name)
@@ -185,6 +191,9 @@ GS::UniString LuaWebDialog::DispatchUIEvent(const std::string& eventName)
             ACAPI_WriteReport(err, true);
         lua_pop(L, 1);
     }
+
+    lua_sethook(L, nullptr, 0, 0);
+    debugger.NotifyRunEnded();
     return {};
 }
 

@@ -1043,14 +1043,35 @@ static int AddWindow(lua_State* L)
         lua_pushfstring(L, "create window failed: err=%d", (int)err);
         return 2;
     }
-
-    // Now set GDL params (A/B/WallSide/RefFlag) via Element_Change
-    // because openingBase struct fields alone may not control marker dimensions
+    // Apply struct fields + GDL params via Element_Change
+    // openingBase.reflected → mirroring, openingBase.oSide → wall side
     {
+        API_Element elem2;
+        BNZeroMemory(&elem2, sizeof(elem2));
+        elem2.header.guid = createdGuid;
+        elem2.window.owner = wallGuid;
+        elem2.window.objLoc = objLoc;
+        elem2.window.openingBase.height = height;
+        elem2.window.openingBase.width = width;
+        elem2.window.lower = sillHeight;
+        elem2.window.openingBase.reflected = mirrored;
+        elem2.window.openingBase.oSide = wallSideInside;
+
+        API_Element mask2;
+        ACAPI_ELEMENT_MASK_CLEAR(mask2);
+        ACAPI_ELEMENT_MASK_SET(mask2, API_WindowType, owner);
+        ACAPI_ELEMENT_MASK_SET(mask2, API_WindowType, objLoc);
+        ACAPI_ELEMENT_MASK_SET(mask2, API_WindowType, lower);
+        ACAPI_ELEMENT_MASK_SET(mask2, API_WindowType, openingBase.height);
+        ACAPI_ELEMENT_MASK_SET(mask2, API_WindowType, openingBase.width);
+        ACAPI_ELEMENT_MASK_SET(mask2, API_WindowType, openingBase.reflected);
+        ACAPI_ELEMENT_MASK_SET(mask2, API_WindowType, openingBase.oSide);
+
         API_ElementMemo pm;
         BNZeroMemory(&pm, sizeof(pm));
         if (ACAPI_Element_GetMemo(createdGuid, &pm, APIMemoMask_AddPars) == NoError && pm.params) {
             UInt32 n = (UInt32)(BMGetHandleSize((GSHandle)pm.params) / sizeof(API_AddParType));
+
             // Dump param names once for debugging
             static bool dumped = false;
             if (!dumped) {
@@ -1079,19 +1100,10 @@ static int AddWindow(lua_State* L)
                 else if ((pname == "B" || pname == "Height") &&
                     (par.typeID == APIParT_Length || par.typeID == APIParT_RealNum))
                     par.value.real = height;
-                else if ((pname == "WallSide" || pname == "RefSide" || pname == "WSide" || pname == "wallSide") &&
-                    (par.typeID == APIParT_Boolean || par.typeID == APIParT_Integer))
-                    par.value.real = wallSideInside ? 1.0 : 0.0;
-                else if ((pname == "RefFlag" || pname == "Reflected" || pname == "Mirrored" || pname == "mirrored" || pname == "Ref_Flag") &&
-                    (par.typeID == APIParT_Boolean || par.typeID == APIParT_Integer))
-                    par.value.real = mirrored ? 1.0 : 0.0;
             }
-            API_Element elem2;
-            BNZeroMemory(&elem2, sizeof(elem2));
-            elem2.header.guid = createdGuid;
-            API_Element mask2;
-            ACAPI_ELEMENT_MASK_CLEAR(mask2);
             ACAPI_Element_Change(&elem2, &mask2, &pm, APIMemoMask_AddPars, true);
+        } else {
+            ACAPI_Element_Change(&elem2, &mask2, nullptr, 0, true);
         }
         ACAPI_DisposeElemMemoHdls(&pm);
     }

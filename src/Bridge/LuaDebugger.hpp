@@ -64,6 +64,7 @@ public:
     // Called by Bridge before/after executing a script
     void NotifyRunStarting();
     void NotifyRunEnded();
+    void ClearPauseReq() { m_pauseReq = 0; }
 
     // Send output event (called from LuaConsole)
     void SendOutput(const char* text);

@@ -155,9 +155,12 @@ GS::UniString LuaWebDialog::DispatchUIEvent(const std::string& eventName)
         return {};
 
     auto& debugger = GetBridge().m_debugger;
+    bool hadHook = false;
     if (debugger.HasClient()) {
         lua_sethook(L, LuaDebugger::DebugHook, LUA_MASKLINE, 0);
         debugger.NotifyRunStarting();
+        debugger.ClearPauseReq();
+        hadHook = true;
     }
 
     lua_pushcfunction(L, [](lua_State* L2) -> int {
@@ -192,8 +195,10 @@ GS::UniString LuaWebDialog::DispatchUIEvent(const std::string& eventName)
         lua_pop(L, 1);
     }
 
-    lua_sethook(L, nullptr, 0, 0);
-    debugger.NotifyRunEnded();
+    if (hadHook) {
+        lua_sethook(L, nullptr, 0, 0);
+        debugger.NotifyRunEnded();
+    }
     return {};
 }
 

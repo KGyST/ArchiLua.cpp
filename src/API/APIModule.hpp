@@ -1011,85 +1011,12 @@ static int AddWindow(lua_State* L)
     API_ElementMemo memo;
     BNZeroMemory(&memo, sizeof(memo));
 
-    API_SubElement marker;
-    BNZeroMemory(&marker, sizeof(marker));
-    marker.subType = APISubElement_MainMarker;
-
     // Get defaults for window
-    err = ACAPI_Element_GetDefaultsExt(&elem, &memo, 1UL, &marker);
+    err = ACAPI_Element_GetDefaults(&elem, &memo);
     if (err != NoError) {
         lua_pushnil(L);
-        lua_pushfstring(L, "GetDefaultsExt failed: err=%d", (int)err);
+        lua_pushfstring(L, "GetDefaults failed: err=%d", (int)err);
         return 2;
-    }
-
-    // Get marker parent library part
-    API_LibPart libPart;
-    BNZeroMemory(&libPart, sizeof(libPart));
-    err = ACAPI_LibraryPart_GetMarkerParent(elem.header.type, libPart);
-    if (err != NoError) {
-        ACAPI_DisposeElemMemoHdls(&memo);
-        ACAPI_DisposeElemMemoHdls(&marker.memo);
-        lua_pushnil(L);
-        lua_pushfstring(L, "GetMarkerParent failed: err=%d", (int)err);
-        return 2;
-    }
-
-    err = ACAPI_LibraryPart_Search(&libPart, false, true);
-    if (err != NoError) {
-        ACAPI_DisposeElemMemoHdls(&memo);
-        ACAPI_DisposeElemMemoHdls(&marker.memo);
-        lua_pushnil(L);
-        lua_pushfstring(L, "LibraryPart_Search failed: err=%d", (int)err);
-        return 2;
-    }
-    delete libPart.location;
-
-    // Get marker params
-    double a, b;
-    Int32 addParNum;
-    API_AddParType** markAddPars = nullptr;
-    err = ACAPI_LibraryPart_GetParams(libPart.index, &a, &b, &addParNum, &markAddPars);
-    if (err != NoError) {
-        ACAPI_DisposeElemMemoHdls(&memo);
-        ACAPI_DisposeElemMemoHdls(&marker.memo);
-        lua_pushnil(L);
-        lua_pushfstring(L, "GetParams failed: err=%d", (int)err);
-        return 2;
-    }
-
-    marker.memo.params = markAddPars;
-    marker.subElem.object.pen = 166;
-    marker.subElem.object.useObjPens = true;
-
-    // Update marker GDL params from user values
-    if (markAddPars) {
-        for (Int32 i = 0; i < addParNum; ++i) {
-            API_AddParType& par = (*markAddPars)[i];
-            if (par.typeMod != API_ParSimple)
-                continue;
-            GS::UniString pname(par.name);
-            // Width
-            if (pname == "A" || pname == "Width") {
-                if (par.typeID == APIParT_Length || par.typeID == APIParT_RealNum)
-                    par.value.real = width;
-            }
-            // Height
-            else if (pname == "B" || pname == "Height") {
-                if (par.typeID == APIParT_Length || par.typeID == APIParT_RealNum)
-                    par.value.real = height;
-            }
-            // Wall side (inside/outside)
-            else if (pname == "WallSide" || pname == "RefSide") {
-                if (par.typeID == APIParT_Boolean || par.typeID == APIParT_Integer)
-                    par.value.real = wallSideInside ? 1.0 : 0.0;
-            }
-            // Mirrored
-            else if (pname == "RefFlag" || pname == "Reflected" || pname == "Mirrored") {
-                if (par.typeID == APIParT_Boolean || par.typeID == APIParT_Integer)
-                    par.value.real = mirrored ? 1.0 : 0.0;
-            }
-        }
     }
 
     // Position on wall: objLoc is distance along wall from begC
@@ -1100,26 +1027,56 @@ static int AddWindow(lua_State* L)
     elem.window.lower = sillHeight;
 
     // Create
-    char errorMsg[256];
     API_Guid createdGuid = APINULLGuid;
 
     err = ACAPI_CallUndoableCommand("Add Window", [&]() -> GSErrCode {
-        GSErrCode e = ACAPI_Element_CreateExt(&elem, &memo, 1UL, &marker);
-        if (e != NoError) {
-            std::sprintf(errorMsg, "create window failed: err=%d", (int)e);
-            return e;
-        }
-        createdGuid = elem.header.guid;
-        return NoError;
+        GSErrCode e = ACAPI_Element_Create(&elem, &memo);
+        if (e == NoError)
+            createdGuid = elem.header.guid;
+        return e;
     });
 
     ACAPI_DisposeElemMemoHdls(&memo);
-    ACAPI_DisposeElemMemoHdls(&marker.memo);
 
     if (err != NoError || createdGuid == APINULLGuid) {
         lua_pushnil(L);
-        lua_pushstring(L, errorMsg);
+        lua_pushfstring(L, "create window failed: err=%d", (int)err);
         return 2;
+    }
+
+    // Now set GDL params (A/B/WallSide/RefFlag) via Element_Change
+    // because openingBase struct fields alone may not control marker dimensions
+    {
+        API_ElementMemo pm;
+        BNZeroMemory(&pm, sizeof(pm));
+        if (ACAPI_Element_GetMemo(createdGuid, &pm, APIMemoMask_AddPars) == NoError && pm.params) {
+            UInt32 n = (UInt32)(BMGetHandleSize((GSHandle)pm.params) / sizeof(API_AddParType));
+            for (UInt32 i = 0; i < n; ++i) {
+                API_AddParType& par = (*pm.params)[i];
+                if (par.typeMod != API_ParSimple)
+                    continue;
+                GS::UniString pname(par.name);
+                if ((pname == "A" || pname == "Width") &&
+                    (par.typeID == APIParT_Length || par.typeID == APIParT_RealNum))
+                    par.value.real = width;
+                else if ((pname == "B" || pname == "Height") &&
+                    (par.typeID == APIParT_Length || par.typeID == APIParT_RealNum))
+                    par.value.real = height;
+                else if ((pname == "WallSide" || pname == "RefSide") &&
+                    (par.typeID == APIParT_Boolean || par.typeID == APIParT_Integer))
+                    par.value.real = wallSideInside ? 1.0 : 0.0;
+                else if ((pname == "RefFlag" || pname == "Reflected" || pname == "Mirrored") &&
+                    (par.typeID == APIParT_Boolean || par.typeID == APIParT_Integer))
+                    par.value.real = mirrored ? 1.0 : 0.0;
+            }
+            API_Element elem2;
+            BNZeroMemory(&elem2, sizeof(elem2));
+            elem2.header.guid = createdGuid;
+            API_Element mask2;
+            ACAPI_ELEMENT_MASK_CLEAR(mask2);
+            ACAPI_Element_Change(&elem2, &mask2, &pm, APIMemoMask_AddPars, true);
+        }
+        ACAPI_DisposeElemMemoHdls(&pm);
     }
 
     GS::UniString guidStr = APIGuidToString(createdGuid);

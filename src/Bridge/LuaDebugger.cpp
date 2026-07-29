@@ -298,10 +298,9 @@ static int SendAll(int sock, const std::string& data) {
 //  LuaDebugger implementation
 // =========================================================================
 
-// File-scope pointer: Lua 5.4's debug hook has no userdata parameter,
-// so we store the active debugger here. Safe because we only have one
-// Lua state running on the main thread.
-static LuaDebugger* s_activeDebugger = nullptr;
+// Class static: Lua 5.4's debug hook has no userdata parameter,
+// so we store the active debugger here.
+LuaDebugger* LuaDebugger::s_activeDebugger = nullptr;
 
 void LuaDebugger::NotifyRunStarting() {
     s_activeDebugger = this;

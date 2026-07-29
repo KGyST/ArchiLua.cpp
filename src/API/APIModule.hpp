@@ -1062,13 +1062,42 @@ static int AddWindow(lua_State* L)
     marker.subElem.object.pen = 166;
     marker.subElem.object.useObjPens = true;
 
+    // Update marker GDL params from user values
+    if (markAddPars) {
+        for (Int32 i = 0; i < addParNum; ++i) {
+            API_AddParType& par = (*markAddPars)[i];
+            if (par.typeMod != API_ParSimple)
+                continue;
+            GS::UniString pname(par.name);
+            // Width
+            if (pname == "A" || pname == "Width") {
+                if (par.typeID == APIParT_Length || par.typeID == APIParT_RealNum)
+                    par.value.real = width;
+            }
+            // Height
+            else if (pname == "B" || pname == "Height") {
+                if (par.typeID == APIParT_Length || par.typeID == APIParT_RealNum)
+                    par.value.real = height;
+            }
+            // Wall side (inside/outside)
+            else if (pname == "WallSide" || pname == "RefSide") {
+                if (par.typeID == APIParT_Boolean || par.typeID == APIParT_Integer)
+                    par.value.real = wallSideInside ? 1.0 : 0.0;
+            }
+            // Mirrored
+            else if (pname == "RefFlag" || pname == "Reflected" || pname == "Mirrored") {
+                if (par.typeID == APIParT_Boolean || par.typeID == APIParT_Integer)
+                    par.value.real = mirrored ? 1.0 : 0.0;
+            }
+        }
+    }
+
     // Position on wall: objLoc is distance along wall from begC
     elem.window.owner = wallGuid;
     elem.window.objLoc = objLoc;
     elem.window.openingBase.height = height;
     elem.window.openingBase.width = width;
     elem.window.lower = sillHeight;
-    // NOTE: wallSide/reflected not in AC27 API_WindowType — use GDL params instead
 
     // Create
     char errorMsg[256];

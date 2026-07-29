@@ -78,6 +78,12 @@
 - [ ] **Window Placing Test Script:** Place a window into the picked wall via `acapi.addWindow` from the Lua callback.
   - Add more UI controls (numeric inputs, dropdowns, slider) and corresponding EDT events.
 	- The GUI should have a Button to add a windows, entries for Window X and Y (Sill) positions and Width and Height. When Button is pressed, a new Window is added having given parameters.
+- [ ] **Window Modifier:** The Window should follow UI changes (back and forth, if possible) 
+	- The Window should be somehow selected (by picking or if the wall is selected, a list of windows should be displayed each with a selector button) 
+	- If the window is seleced, its properties (Width, Height etc) in the UI Entries should be displayed correctly.
+	- If UI entries are changed, window should follow the changes
+	- Only evaluate this:
+		- If poessible, if the window is changed another way (on ArchiCAD GUI etc) the UI Entries should follow. How complicated  is this (event handlers) 
 - [ ] **Windows Registry Handling:**
   - Persist GUI input field values into Windows Registry under `HKCU\Software\Samu\ArchiLua\try_web_gui`.
   - Create Win32 Registry C++ helper wrappers based on `CommonCppLibs` and expose them to Lua (`acapi.regRead`, `acapi.regWrite`).

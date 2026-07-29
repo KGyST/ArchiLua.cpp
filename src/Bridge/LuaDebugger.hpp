@@ -64,7 +64,10 @@ public:
     // Called by Bridge before/after executing a script
     void NotifyRunStarting();
     void NotifyRunEnded();
-    void ClearPauseReq() { m_pauseReq = 0; }
+
+    // Callback-mode: activate hook for DispatchUIEvent without first-line pause
+    static void ActivateForCallback(LuaDebugger* d) { s_activeDebugger = d; }
+    static void DeactivateForCallback() { s_activeDebugger = nullptr; }
 
     // Send output event (called from LuaConsole)
     void SendOutput(const char* text);
@@ -102,6 +105,9 @@ private:
     void SendEvent(const std::string& name, const std::string& body);
     void SendStopped(const char* reason);
     void SendResponse(int seq, const std::string& cmd, const std::string& body = "");
+
+    // Active debugger for hook dispatch
+    static LuaDebugger* s_activeDebugger;
 
     // Breakpoint match
     bool HitBreakpoint(const char* source, int line);

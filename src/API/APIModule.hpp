@@ -1051,6 +1051,23 @@ static int AddWindow(lua_State* L)
         BNZeroMemory(&pm, sizeof(pm));
         if (ACAPI_Element_GetMemo(createdGuid, &pm, APIMemoMask_AddPars) == NoError && pm.params) {
             UInt32 n = (UInt32)(BMGetHandleSize((GSHandle)pm.params) / sizeof(API_AddParType));
+            // Dump param names once for debugging
+            static bool dumped = false;
+            if (!dumped) {
+                dumped = true;
+                std::string dbg;
+                for (UInt32 j = 0; j < n; ++j) {
+                    API_AddParType& p = (*pm.params)[j];
+                    if (!dbg.empty()) dbg += ", ";
+                    dbg += p.name;
+                    dbg += "=";
+                    char buf[64];
+                    std::sprintf(buf, "%.2f", p.value.real);
+                    dbg += buf;
+                }
+                ACAPI_WriteReport(("Window params: " + dbg).c_str(), false);
+            }
+
             for (UInt32 i = 0; i < n; ++i) {
                 API_AddParType& par = (*pm.params)[i];
                 if (par.typeMod != API_ParSimple)
@@ -1062,10 +1079,10 @@ static int AddWindow(lua_State* L)
                 else if ((pname == "B" || pname == "Height") &&
                     (par.typeID == APIParT_Length || par.typeID == APIParT_RealNum))
                     par.value.real = height;
-                else if ((pname == "WallSide" || pname == "RefSide") &&
+                else if ((pname == "WallSide" || pname == "RefSide" || pname == "WSide" || pname == "wallSide") &&
                     (par.typeID == APIParT_Boolean || par.typeID == APIParT_Integer))
                     par.value.real = wallSideInside ? 1.0 : 0.0;
-                else if ((pname == "RefFlag" || pname == "Reflected" || pname == "Mirrored") &&
+                else if ((pname == "RefFlag" || pname == "Reflected" || pname == "Mirrored" || pname == "mirrored" || pname == "Ref_Flag") &&
                     (par.typeID == APIParT_Boolean || par.typeID == APIParT_Integer))
                     par.value.real = mirrored ? 1.0 : 0.0;
             }

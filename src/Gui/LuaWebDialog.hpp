@@ -18,10 +18,13 @@ class LuaWebDialog :
 {
 private:
     DG::Browser browser;
+    std::string m_payload;
 
 public:
     void ExecuteJS(const GS::UniString& js) { browser.ExecuteJS(js); }
     GS::UniString DispatchUIEvent(const std::string& eventName);
+    void SetPayload(const std::string& p) { m_payload = p; }
+    const std::string& GetPayload() const { return m_payload; }
 
 public:
     LuaWebDialog();

@@ -96,6 +96,38 @@ static int L_ShowWebDialog(lua_State* L)
 }
 
 // ---------------------------------------------------------------------------
+// Lua-callable: GetEventPayload() — returns JSON string from last JS send
+// ---------------------------------------------------------------------------
+
+static int L_GetEventPayload(lua_State* L)
+{
+    auto& bridge = GetBridge();
+    auto* dlg = dynamic_cast<LuaWebDialog*>(bridge.GetDialog());
+    if (dlg) {
+        lua_pushstring(L, dlg->GetPayload().c_str());
+    } else {
+        lua_pushstring(L, "");
+    }
+    return 1;
+}
+
+// ---------------------------------------------------------------------------
+// Lua-callable: ExecuteJS(jsString) — run arbitrary JS in the browser
+// ---------------------------------------------------------------------------
+
+static int L_ExecuteJS(lua_State* L)
+{
+    const char* js = lua_tostring(L, 1);
+    if (!js)
+        return 0;
+    auto& bridge = GetBridge();
+    auto* dlg = dynamic_cast<LuaWebDialog*>(bridge.GetDialog());
+    if (dlg)
+        dlg->ExecuteJS(GS::UniString(js));
+    return 0;
+}
+
+// ---------------------------------------------------------------------------
 // Register Web UI Lua functions in the Lua state
 // ---------------------------------------------------------------------------
 
@@ -108,6 +140,8 @@ void RegisterWebUIFunctions(lua_State* L)
     lua_register(L, "SetWebResult", L_SetWebResult);
     lua_register(L, "PickWall", L_PickWall);
     lua_register(L, "ShowWebDialog", L_ShowWebDialog);
+    lua_register(L, "GetEventPayload", L_GetEventPayload);
+    lua_register(L, "ExecuteJS", L_ExecuteJS);
 }
 
 // ---------------------------------------------------------------------------
@@ -175,7 +209,7 @@ GSErrCode __ACENV_CALL LuaWebDialog::PaletteAPIControlCallBack(
 {
     if (referenceID == PaletteRefId()) {
         auto& bridge = GetBridge();
-        auto* dlg = static_cast<LuaWebDialog*>(bridge.GetDialog());
+    auto* dlg = dynamic_cast<LuaWebDialog*>(bridge.GetDialog());
         switch (messageID) {
             case APIPalMsg_ClosePalette:
                 if (dlg && dlg->IsVisible())
@@ -216,6 +250,29 @@ static void RegisterJSObject(DG::Browser& browser, LuaWebDialog* dlg)
         if (jsValue != nullptr && jsValue->GetType() == JS::Value::STRING) {
             GS::UniString eventName = jsValue->GetString();
             dlg->DispatchUIEvent(std::string(eventName.ToCStr().Get()));
+        }
+        return GS::Ref<JS::Base>(new JS::Value());
+    }));
+
+    // SendEvent(name, payload) — like DispatchEvent but with a payload string
+    jsArchilua->AddItem(new JS::Function("SendEvent", [dlg] (GS::Ref<JS::Base> params) {
+        GS::Ref<JS::Array> arr = GS::DynamicCast<JS::Array>(params);
+        if (arr != nullptr) {
+            const auto& items = arr->GetItemArray();
+            if (items.GetSize() >= 1) {
+                GS::UniString eventName;
+                std::string payload;
+                GS::Ref<JS::Value> nameVal = GS::DynamicCast<JS::Value>(items[0]);
+                if (nameVal != nullptr && nameVal->GetType() == JS::Value::STRING)
+                    eventName = nameVal->GetString();
+                if (items.GetSize() >= 2) {
+                    GS::Ref<JS::Value> payloadVal = GS::DynamicCast<JS::Value>(items[1]);
+                    if (payloadVal != nullptr && payloadVal->GetType() == JS::Value::STRING)
+                        payload = std::string(payloadVal->GetString().ToCStr().Get());
+                }
+                dlg->SetPayload(payload);
+                dlg->DispatchUIEvent(std::string(eventName.ToCStr().Get()));
+            }
         }
         return GS::Ref<JS::Base>(new JS::Value());
     }));

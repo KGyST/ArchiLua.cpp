@@ -36,15 +36,16 @@ Bridge& ArchiLua::GetBridge()
 //
 // =============================================================================
 
-static void ExecLuaSilent(const char* relPath)
+static void ExecLuaSilent(const std::string& relPath)
 {
+    GetBridge().SetLastScriptPath(relPath);
     lua_State* L = GetBridge().State();
     if (!L)
         return;
 
     GS::UniString uniPath;
-    if (strlen(relPath) >= 2 && relPath[1] == ':') {
-        uniPath = GS::UniString(relPath);
+    if (relPath.size() >= 2 && relPath[1] == ':') {
+        uniPath = GS::UniString(relPath.c_str());
     } else {
         IO::Location ownLoc;
         if (ACAPI_GetOwnLocation(&ownLoc) != NoError)
@@ -53,7 +54,7 @@ static void ExecLuaSilent(const char* relPath)
         GS::UniString baseStr;
         ownLoc.ToPath(&baseStr);
         baseStr.Append("\\");
-        baseStr.Append(relPath);
+        baseStr.Append(relPath.c_str());
         uniPath = baseStr;
     }
 
@@ -65,12 +66,22 @@ static void ExecLuaSilent(const char* relPath)
         lua_pop(L, 1);
         return;
     }
+
+    // DAP support
+    auto& debugger = GetBridge().m_debugger;
+    if (debugger.HasClient()) {
+        lua_sethook(L, LuaDebugger::DebugHook, LUA_MASKLINE, 0);
+        debugger.NotifyRunStarting();
+    }
+
     if (lua_pcall(L, 0, 0, 0) != LUA_OK) {
         const char* err = lua_tostring(L, -1);
         if (err) ACAPI_WriteReport(err, true);
         lua_pop(L, 1);
-        return;
     }
+
+    lua_sethook(L, nullptr, 0, 0);
+    debugger.NotifyRunEnded();
 
     // If no dialog was created by the script, create one now
     if (GetBridge().GetDialog() == nullptr) {
@@ -91,7 +102,13 @@ static GSErrCode __ACENV_CALL MenuCommandHandler(const API_MenuParams* params)
         }
         break;
     case 2:
-        ExecLuaSilent("lua_scripts\\try_web_gui.lua");
+        {
+            const std::string& lastPath = GetBridge().GetLastScriptPath();
+            if (!lastPath.empty())
+                ExecLuaSilent(lastPath);
+            else
+                ExecLuaSilent("lua_scripts\\try_web_gui.lua");
+        }
         break;
     }
     return NoError;

@@ -110,6 +110,7 @@ public:
     }
 
     const std::string& GetLastScriptPath() const { return lastScriptPath; }
+    void SetLastScriptPath(const std::string& path) { lastScriptPath = path; SaveLastScriptPath(); }
 
     void Shutdown()
     {

@@ -14,31 +14,24 @@ local function HandlePickWall()
     end
 end
 
-local function HandlePlaceWindow()
+local function HandlePlaceWindow(args)
     if not selectedWall then
         SetWebResult("Pick a wall first!")
         return
     end
-    local qs = GetEventPayload()
-    if qs == "" then
-        SetWebResult("No payload received")
+    if not args then
+        SetWebResult("No args received")
         return
     end
 
-    local p = {}
-    for k, v in qs:gmatch("([^=]+)=([^&]*)") do
-        local n = tonumber(v)
-        p[k] = (n ~= nil) and n or (v == "true") and true or (v == "false") and false or v
-    end
+    args.objLoc = args.objLoc or 2.0
+    args.height = args.height or 1.5
+    args.width = args.width or 1.0
+    args.sillHeight = args.sillHeight or 0.9
+    args.wallSide = args.wallSide or "inside"
+    args.mirrored = args.mirrored or false
 
-    local ok, err = acapi.addWindow(selectedWall, {
-        objLoc    = p.objLoc or 2.0,
-        height    = p.height or 1.5,
-        width     = p.width or 1.0,
-        sillHeight= p.sillHeight or 0.9,
-        wallSide  = p.wallSide or "inside",
-        mirrored  = p.mirrored == true
-    })
+    local ok, err = acapi.addWindow(selectedWall, args)
     if ok then
         SetWebResult("Window placed!")
     else
@@ -90,13 +83,14 @@ function pickWall(){
 }
 function placeWindow(){
     var f = function(id){ return document.getElementById(id); };
-    var qs = 'objLoc=' + f('objLoc').value
-           + '&height=' + f('height').value
-           + '&width=' + f('width').value
-           + '&sillHeight=' + f('sillHeight').value
-           + '&wallSide=' + f('wallSide').value
-           + '&mirrored=' + f('mirrored').checked;
-    archilua.SendEvent('onPlaceWindow', qs);
+    archilua.CallLua('onPlaceWindow', JSON.stringify({
+        objLoc: parseFloat(f('objLoc').value),
+        height: parseFloat(f('height').value),
+        width: parseFloat(f('width').value),
+        sillHeight: parseFloat(f('sillHeight').value),
+        wallSide: f('wallSide').value,
+        mirrored: f('mirrored').checked
+    }));
 }
 </script>
 </body>

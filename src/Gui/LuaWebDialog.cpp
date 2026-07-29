@@ -145,10 +145,47 @@ void RegisterWebUIFunctions(lua_State* L)
 }
 
 // ---------------------------------------------------------------------------
-// DispatchUIEvent — route JS events to Lua callbacks
+// PushJsonToLua — recursively convert a Json value to Lua
 // ---------------------------------------------------------------------------
 
-GS::UniString LuaWebDialog::DispatchUIEvent(const std::string& eventName)
+void LuaWebDialog::PushJsonToLua(lua_State* L, const Json& val)
+{
+    switch (val.type) {
+    case Json::Null:
+        lua_pushnil(L);
+        break;
+    case Json::Bool:
+        lua_pushboolean(L, val.b);
+        break;
+    case Json::Num:
+        lua_pushnumber(L, val.n);
+        break;
+    case Json::Str:
+        lua_pushstring(L, val.s.c_str());
+        break;
+    case Json::Arr:
+        lua_newtable(L);
+        for (size_t i = 0; i < val.a.size(); ++i) {
+            PushJsonToLua(L, val.a[i]);
+            lua_rawseti(L, -2, (int)(i + 1));
+        }
+        break;
+    case Json::Obj:
+        lua_newtable(L);
+        for (size_t i = 0; i < val.o.size(); ++i) {
+            lua_pushstring(L, val.o[i].first.c_str());
+            PushJsonToLua(L, val.o[i].second);
+            lua_rawset(L, -3);
+        }
+        break;
+    }
+}
+
+// DispatchUIEvent — route JS events to Lua callbacks
+// argsJson: optional JSON string to convert and pass as argument to callback
+// ---------------------------------------------------------------------------
+
+GS::UniString LuaWebDialog::DispatchUIEvent(const std::string& eventName, const std::string& argsJson)
 {
     lua_State* L = GetBridge().State();
     if (!L)
@@ -163,6 +200,7 @@ GS::UniString LuaWebDialog::DispatchUIEvent(const std::string& eventName)
     }
 
     lua_pushcfunction(L, [](lua_State* L2) -> int {
+        int nArgs = lua_gettop(L2);
         const char* name = lua_tostring(L2, 1);
         if (!name)
             return 0;
@@ -172,22 +210,40 @@ GS::UniString LuaWebDialog::DispatchUIEvent(const std::string& eventName)
             return 0;
         }
         lua_getfield(L2, -1, name);
-        if (lua_isfunction(L2, -1)) {
+        if (!lua_isfunction(L2, -1)) {
+            lua_pop(L2, 2);
+            return 0;
+        }
+        lua_remove(L2, -2); // pop eventsTable
+        // Stack: [eventName, function] or [eventName, argTable, function]
+
+        if (nArgs >= 2) {
+            lua_pushvalue(L2, 2); // copy argTable above function
+            lua_remove(L2, 2);    // remove original argTable
+            if (lua_pcall(L2, 1, 0, 0) != LUA_OK) {
+                const char* err = lua_tostring(L2, -1);
+                if (err) ACAPI_WriteReport(err, true);
+                lua_pop(L2, 1);
+            }
+        } else {
             if (lua_pcall(L2, 0, 0, 0) != LUA_OK) {
                 const char* err = lua_tostring(L2, -1);
                 if (err) ACAPI_WriteReport(err, true);
                 lua_pop(L2, 1);
-                lua_pop(L2, 1);
-                return 0;
             }
-            lua_pop(L2, 1);
-            return 0;
         }
-        lua_pop(L2, 2);
         return 0;
     });
     lua_pushstring(L, eventName.c_str());
-    if (lua_pcall(L, 1, 0, 0) != LUA_OK) {
+
+    int nOuterArgs = 1;
+    if (!argsJson.empty()) {
+        Json parsed = Json::Parse(argsJson);
+        PushJsonToLua(L, parsed);
+        nOuterArgs = 2;
+    }
+
+    if (lua_pcall(L, nOuterArgs, 0, 0) != LUA_OK) {
         const char* err = lua_tostring(L, -1);
         if (err)
             ACAPI_WriteReport(err, true);
@@ -285,6 +341,29 @@ static void RegisterJSObject(DG::Browser& browser, LuaWebDialog* dlg)
                 }
                 dlg->SetPayload(payload);
                 dlg->DispatchUIEvent(std::string(eventName.ToCStr().Get()));
+            }
+        }
+        return GS::Ref<JS::Base>(new JS::Value());
+    }));
+
+    // CallLua(name, jsonString) — calls Lua callback with parsed JSON args table
+    jsArchilua->AddItem(new JS::Function("CallLua", [dlg] (GS::Ref<JS::Base> params) {
+        GS::Ref<JS::Array> arr = GS::DynamicCast<JS::Array>(params);
+        if (arr != nullptr) {
+            const auto& items = arr->GetItemArray();
+            if (items.GetSize() >= 1) {
+                GS::UniString eventName;
+                std::string jsonArgs;
+                GS::Ref<JS::Value> nameVal = GS::DynamicCast<JS::Value>(items[0]);
+                if (nameVal != nullptr && nameVal->GetType() == JS::Value::STRING)
+                    eventName = nameVal->GetString();
+                if (items.GetSize() >= 2) {
+                    GS::Ref<JS::Value> argsVal = GS::DynamicCast<JS::Value>(items[1]);
+                    if (argsVal != nullptr && argsVal->GetType() == JS::Value::STRING)
+                        jsonArgs = std::string(argsVal->GetString().ToCStr().Get());
+                }
+                if (!eventName.IsEmpty())
+                    dlg->DispatchUIEvent(std::string(eventName.ToCStr().Get()), jsonArgs);
             }
         }
         return GS::Ref<JS::Base>(new JS::Value());

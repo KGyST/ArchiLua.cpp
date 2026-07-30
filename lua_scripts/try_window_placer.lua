@@ -30,10 +30,16 @@ local function HandlePlaceWindow(args)
     args.sillHeight = args.sillHeight or 0.9
     args.wallSide = args.wallSide or "inside"
     args.mirrored = args.mirrored or false
+    args.openingAngle = args.openingAngle or 45
 
-    local ok, err = acapi.addWindow(selectedWall, args)
-    if ok then
-        SetWebResult("Window placed!")
+    local guid, err = acapi.addWindow(selectedWall, args)
+    if guid then
+        local ok, gdlErr = acapi.setGDLParam(guid, "gs_open_2D", args.openingAngle)
+        if ok then
+            SetWebResult("Window placed! openingAngle set.")
+        else
+            SetWebResult("Window placed, but GDL param error: " .. tostring(gdlErr))
+        end
     else
         SetWebResult("Error: " .. tostring(err))
     end
@@ -74,6 +80,7 @@ select{margin:4px 0;}
   </select>
 </div>
 <div class='row'><label>Mirrored:</label><input id='mirrored' type='checkbox'></div>
+<div class='row'><label>Opening &deg;:</label><input id='openingAngle' type='number' value='45' min='0' max='180' step='5'></div>
 <div><button onclick='placeWindow()'>Place Window</button></div>
 <div id='result'>Select a wall, set parameters, then place.</div>
 <script>
@@ -89,7 +96,8 @@ function placeWindow(){
         width: parseFloat(f('width').value),
         sillHeight: parseFloat(f('sillHeight').value),
         wallSide: f('wallSide').value,
-        mirrored: f('mirrored').checked
+        mirrored: f('mirrored').checked,
+        openingAngle: parseFloat(f('openingAngle').value)
     }));
 }
 </script>

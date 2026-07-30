@@ -945,6 +945,107 @@ static int AddWall(lua_State* L)
     return 1;
 }
 
+static int SetGDLParam(lua_State* L)
+{
+    const char* guidStr = lua_tostring(L, 1);
+    const char* paramName = lua_tostring(L, 2);
+    if (!guidStr || !paramName || !lua_isnumber(L, 3)) {
+        lua_pushboolean(L, false);
+        lua_pushstring(L, "expected guid, paramName, value");
+        return 2;
+    }
+    double value = lua_tonumber(L, 3);
+
+    API_Guid guid = APIGuidFromString(guidStr);
+
+    API_Element elem;
+    BNZeroMemory(&elem, sizeof(elem));
+    elem.header.guid = guid;
+    GSErrCode err = ACAPI_Element_Get(&elem);
+    if (err != NoError) {
+        lua_pushboolean(L, false);
+        lua_pushfstring(L, "element not found: err=%d", (int)err);
+        return 2;
+    }
+
+    API_ElementMemo memo;
+    BNZeroMemory(&memo, sizeof(memo));
+    err = ACAPI_Element_GetMemo(guid, &memo, APIMemoMask_AddPars);
+    if (err != NoError || !memo.params) {
+        lua_pushboolean(L, false);
+        lua_pushstring(L, "no params memo");
+        return 2;
+    }
+
+    UInt32 n = (UInt32)(BMGetHandleSize((GSHandle)memo.params) / sizeof(API_AddParType));
+    bool found = false;
+    for (UInt32 i = 0; i < n; ++i) {
+        API_AddParType& par = (*memo.params)[i];
+        if (par.typeMod != API_ParSimple)
+            continue;
+        if (GS::UniString(par.name) == paramName) {
+            switch (par.typeID) {
+                case APIParT_Angle:
+                    par.value.real = value * 3.14159265358979323846 / 180.0;
+                    break;
+                case APIParT_Boolean:
+                    par.value.real = value != 0.0 ? 1.0 : 0.0;
+                    break;
+                default:
+                    par.value.real = value;
+                    break;
+            }
+            found = true;
+            break;
+        }
+    }
+
+    if (!found) {
+        ACAPI_DisposeElemMemoHdls(&memo);
+        lua_pushboolean(L, false);
+        lua_pushfstring(L, "param '%s' not found or not modifiable", paramName);
+        return 2;
+    }
+
+    API_Element mask;
+    ACAPI_ELEMENT_MASK_CLEAR(mask);
+
+    err = ACAPI_CallUndoableCommand("Set GDL Param", [&]() -> GSErrCode {
+        return ACAPI_Element_Change(&elem, &mask, &memo, APIMemoMask_AddPars, true);
+    });
+    ACAPI_DisposeElemMemoHdls(&memo);
+
+    if (err != NoError) {
+        lua_pushboolean(L, false);
+        lua_pushfstring(L, "change failed: err=%d", (int)err);
+        return 2;
+    }
+
+    {
+        char buf[512];
+        std::sprintf(buf, "SetGDLParam: %s=%.4f", paramName, value);
+        ACAPI_WriteReport(buf, false);
+        API_ElementMemo vm;
+        BNZeroMemory(&vm, sizeof(vm));
+        if (ACAPI_Element_GetMemo(guid, &vm, APIMemoMask_AddPars) == NoError && vm.params) {
+            UInt32 vn = (UInt32)(BMGetHandleSize((GSHandle)vm.params) / sizeof(API_AddParType));
+            for (UInt32 i = 0; i < vn; ++i) {
+                API_AddParType& p = (*vm.params)[i];
+                if (GS::UniString(p.name) == paramName) {
+                    std::sprintf(buf, "SetGDLParam: read back %s=%.4f (typeID=%d, typeMod=%d)",
+                        paramName, p.value.real, (int)p.typeID, (int)p.typeMod);
+                    ACAPI_WriteReport(buf, false);
+                    break;
+                }
+            }
+            ACAPI_DisposeElemMemoHdls(&vm);
+        }
+    }
+
+    lua_pushboolean(L, true);
+    return 1;
+}
+
 static int AddWindow(lua_State* L)
 {
     const char* wallGuidStr = lua_tostring(L, 1);
@@ -989,6 +1090,7 @@ static int AddWindow(lua_State* L)
     double sillHeight = lua_isnumber(L, -1) ? lua_tonumber(L, -1) : 0.9;
     lua_pop(L, 1);
 
+    // Read wallSide / mirrored / openingAngle params before any element setup
     lua_getfield(L, 2, "wallSide");
     bool wallSideInside = false;
     if (lua_isstring(L, -1)) {
@@ -1001,6 +1103,10 @@ static int AddWindow(lua_State* L)
 
     lua_getfield(L, 2, "mirrored");
     bool mirrored = lua_toboolean(L, -1);
+    lua_pop(L, 1);
+
+    lua_getfield(L, 2, "openingAngle");
+    double openingAngle = lua_isnumber(L, -1) ? lua_tonumber(L, -1) : 45.0;
     lua_pop(L, 1);
 
     // Set up window element
@@ -1019,15 +1125,13 @@ static int AddWindow(lua_State* L)
         return 2;
     }
 
-    // Position on wall: objLoc is distance along wall from begC
+    // Position on wall + set opening size/mirror before Create
     elem.window.owner = wallGuid;
     elem.window.objLoc = objLoc;
     elem.window.openingBase.height = height;
     elem.window.openingBase.width = width;
     elem.window.lower = sillHeight;
     elem.window.openingBase.reflected = mirrored;
-    elem.window.openingBase.oSide = wallSideInside;
-    elem.window.openingBase.refSide = wallSideInside;
 
     // Create
     API_Guid createdGuid = APINULLGuid;
@@ -1046,54 +1150,71 @@ static int AddWindow(lua_State* L)
         lua_pushfstring(L, "create window failed: err=%d", (int)err);
         return 2;
     }
-    // Update GDL params (A, B) via Element_Change
-    {
+
+    // Post-create: mirror struct field + wallSide GDL param
+    ACAPI_CallUndoableCommand("Post-create Window", [&]() -> GSErrCode {
         API_Element elem2;
         BNZeroMemory(&elem2, sizeof(elem2));
         elem2.header.guid = createdGuid;
+        ACAPI_Element_Get(&elem2);
         API_Element mask2;
+        ACAPI_ELEMENT_MASK_CLEAR(mask2);
+        elem2.window.openingBase.reflected = mirrored;
         ACAPI_ELEMENT_MASK_SET(mask2, API_WindowType, openingBase.reflected);
-        ACAPI_ELEMENT_MASK_SET(mask2, API_WindowType, openingBase.oSide);
 
         API_ElementMemo pm;
         BNZeroMemory(&pm, sizeof(pm));
-        if (ACAPI_Element_GetMemo(createdGuid, &pm, APIMemoMask_AddPars) == NoError && pm.params) {
+        GSErrCode e = ACAPI_Element_GetMemo(createdGuid, &pm, APIMemoMask_AddPars);
+        if (e == NoError && pm.params) {
             UInt32 n = (UInt32)(BMGetHandleSize((GSHandle)pm.params) / sizeof(API_AddParType));
-
-            // Dump param names once for debugging
-            static bool dumped = false;
-            if (!dumped) {
-                dumped = true;
-                std::string dbg;
-                for (UInt32 j = 0; j < n; ++j) {
-                    API_AddParType& p = (*pm.params)[j];
-                    if (!dbg.empty()) dbg += ", ";
-                    dbg += p.name;
-                    dbg += "=";
-                    char buf[64];
-                    std::sprintf(buf, "%.2f", p.value.real);
-                    dbg += buf;
-                }
-                ACAPI_WriteReport(("Window params: " + dbg).c_str(), false);
-            }
-
             for (UInt32 i = 0; i < n; ++i) {
                 API_AddParType& par = (*pm.params)[i];
                 if (par.typeMod != API_ParSimple)
                     continue;
                 GS::UniString pname(par.name);
-                if ((pname == "A" || pname == "Width") &&
-                    (par.typeID == APIParT_Length || par.typeID == APIParT_RealNum))
-                    par.value.real = width;
-                else if ((pname == "B" || pname == "Height") &&
-                    (par.typeID == APIParT_Length || par.typeID == APIParT_RealNum))
-                    par.value.real = height;
+                if ((pname == "ac_wido_flip_once") &&
+                    (par.typeID == APIParT_Boolean || par.typeID == APIParT_Integer || par.typeID == APIParT_RealNum))
+                    par.value.real = wallSideInside ? 1.0 : 0.0;
             }
-            ACAPI_Element_Change(&elem2, &mask2, &pm, APIMemoMask_AddPars, true);
-        } else {
-            ACAPI_Element_Change(&elem2, &mask2, nullptr, 0, true);
+            e = ACAPI_Element_Change(&elem2, &mask2, &pm, APIMemoMask_AddPars, true);
+            ACAPI_DisposeElemMemoHdls(&pm);
+            return e;
         }
         ACAPI_DisposeElemMemoHdls(&pm);
+        return ACAPI_Element_Change(&elem2, &mask2, nullptr, 0, true);
+    });
+
+    // Flip window to inside via APIEdit_Mirror (equivalent to ArchiCAD pet palette flip)
+    if (wallSideInside) {
+        API_Neig neig;
+        GSErrCode neigErr = ACAPI_Selection_SetSelectedElementNeig(&createdGuid, &neig);
+        if (neigErr == NoError) {
+            GS::Array<API_Neig> neigs;
+            neigs.Push(neig);
+
+            API_EditPars pars;
+            BNZeroMemory(&pars, sizeof(pars));
+            pars.typeID = APIEdit_Mirror;
+            pars.withDelete = true;
+            // Mirror axis = wall center line (mirror across wall direction flips side)
+            pars.begC.x = wallElem.wall.begC.x;
+            pars.begC.y = wallElem.wall.begC.y;
+            pars.begC.z = 0;
+            pars.endC.x = wallElem.wall.endC.x;
+            pars.endC.y = wallElem.wall.endC.y;
+            pars.endC.z = 0;
+
+            GSErrCode mirrorErr = ACAPI_CallUndoableCommand("Flip Window", [&]() -> GSErrCode {
+                return ACAPI_Element_Edit(&neigs, pars);
+            });
+            char buf[128];
+            std::sprintf(buf, "Mirror result: %d", (int)mirrorErr);
+            ACAPI_WriteReport(buf, false);
+        } else {
+            char buf[128];
+            std::sprintf(buf, "SetSelectedElementNeig failed: %d", (int)neigErr);
+            ACAPI_WriteReport(buf, false);
+        }
     }
 
     GS::UniString guidStr = APIGuidToString(createdGuid);
@@ -1522,6 +1643,9 @@ inline void Register(lua_State* L)
 
     lua_pushcfunction(L, AddRoof);
     lua_setfield(L, -2, "addRoof");
+
+    lua_pushcfunction(L, SetGDLParam);
+    lua_setfield(L, -2, "setGDLParam");
 
     lua_setglobal(L, "acapi");
 }

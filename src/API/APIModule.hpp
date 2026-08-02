@@ -1168,6 +1168,7 @@ static int AddWindow(lua_State* L)
     elem.window.lower = sillHeight;
     elem.window.openingBase.reflected = mirrored;
     elem.window.openingBase.refSide = wallSideOutside;
+    elem.window.openingBase.oSide = wallSideOutside;
 
     // Set ac_OpeningSide (A=inside, B=outside) in the memo before Create.
     // A post-create Change of this GDL param does not flip the window; it must be
@@ -1203,8 +1204,10 @@ static int AddWindow(lua_State* L)
         ACAPI_ELEMENT_MASK_CLEAR(mask2);
         elem2.window.openingBase.reflected = mirrored;
         elem2.window.openingBase.refSide = wallSideOutside;
+        elem2.window.openingBase.oSide = wallSideOutside;
         ACAPI_ELEMENT_MASK_SET(mask2, API_WindowType, openingBase.reflected);
         ACAPI_ELEMENT_MASK_SET(mask2, API_WindowType, openingBase.refSide);
+        ACAPI_ELEMENT_MASK_SET(mask2, API_WindowType, openingBase.oSide);
         return ACAPI_Element_Change(&elem2, &mask2, nullptr, 0, true);
     });
 
@@ -1336,6 +1339,7 @@ static int AddDoor(lua_State* L)
     elem.door.openingBase.width = width;
     elem.door.openingBase.reflected = mirrored;
     elem.door.openingBase.refSide = wallSideOutside;
+    elem.door.openingBase.oSide = wallSideOutside;
 
     // Set ac_OpeningSide (A=inside, B=outside) in the memo before Create.
     SetMemoGDLParam(memo, "ac_OpeningSide", true, wallSideOutside ? "B" : "A", 0.0);

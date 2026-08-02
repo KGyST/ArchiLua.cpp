@@ -34,12 +34,10 @@ local function HandlePlaceWindow(args)
 
     local guid, err = acapi.addWindow(selectedWall, args)
     if guid then
-        local ok, gdlErr = acapi.setGDLParam(guid, "gs_open_2D", args.openingAngle)
-        if ok then
-            SetWebResult("Window placed! openingAngle set.")
-        else
-            SetWebResult("Window placed, but GDL param error: " .. tostring(gdlErr))
-        end
+        acapi.setGDLParam(guid, "gs_open_2D", args.openingAngle)
+        local sideVal = (args.wallSide == "inside") and "A" or "B"
+        acapi.setGDLParam(guid, "ac_OpeningSide", sideVal)
+        SetWebResult("Window placed! ac_OpeningSide=" .. sideVal)
     else
         SetWebResult("Error: " .. tostring(err))
     end

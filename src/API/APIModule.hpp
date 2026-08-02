@@ -1041,6 +1041,43 @@ static int SetGDLParam(lua_State* L)
     return 1;
 }
 
+static bool SetMemoGDLParam(API_ElementMemo& memo, const char* paramName, bool isString, const char* valueStr, double value)
+{
+    if (!memo.params)
+        return false;
+    UInt32 n = (UInt32)(BMGetHandleSize((GSHandle)memo.params) / sizeof(API_AddParType));
+    for (UInt32 i = 0; i < n; ++i) {
+        API_AddParType& par = (*memo.params)[i];
+        if (par.typeMod != API_ParSimple)
+            continue;
+        if (GS::UniString(par.name) != paramName)
+            continue;
+        if (isString) {
+            GS::UniString unistr(valueStr);
+            UInt32 len = unistr.GetLength();
+            if (len >= API_UAddParStrLen)
+                len = API_UAddParStrLen - 1;
+            for (UInt32 k = 0; k < len; ++k)
+                par.value.uStr[k] = unistr[k];
+            par.value.uStr[len] = 0;
+        } else {
+            switch (par.typeID) {
+                case APIParT_Angle:
+                    par.value.real = value * 3.14159265358979323846 / 180.0;
+                    break;
+                case APIParT_Boolean:
+                    par.value.real = value != 0.0 ? 1.0 : 0.0;
+                    break;
+                default:
+                    par.value.real = value;
+                    break;
+            }
+        }
+        return true;
+    }
+    return false;
+}
+
 static int AddWindow(lua_State* L)
 {
     const char* wallGuidStr = lua_tostring(L, 1);
@@ -1085,17 +1122,7 @@ static int AddWindow(lua_State* L)
     double sillHeight = lua_isnumber(L, -1) ? lua_tonumber(L, -1) : 0.9;
     lua_pop(L, 1);
 
-    // Read wallSide / mirrored / openingAngle params before any element setup
-    lua_getfield(L, 2, "wallSide");
-    bool wallSideInside = false;
-    if (lua_isstring(L, -1)) {
-        const char* s = lua_tostring(L, -1);
-        wallSideInside = (GS::UniString(s).Compare("inside") == 0);
-    } else if (lua_isinteger(L, -1)) {
-        wallSideInside = (lua_tointeger(L, -1) != 0);
-    }
-    lua_pop(L, 1);
-
+    // Read mirrored / openingAngle params before any element setup
     lua_getfield(L, 2, "mirrored");
     bool mirrored = lua_toboolean(L, -1);
     lua_pop(L, 1);
@@ -1103,6 +1130,19 @@ static int AddWindow(lua_State* L)
     lua_getfield(L, 2, "openingAngle");
     double openingAngle = lua_isnumber(L, -1) ? lua_tonumber(L, -1) : 45.0;
     lua_pop(L, 1);
+
+    // Wall side: "inside" / "outside", resolved against the wall's flipped state
+    lua_getfield(L, 2, "wallSide");
+    bool wallSideOutside = false;
+    if (lua_isstring(L, -1)) {
+        const char* s = lua_tostring(L, -1);
+        wallSideOutside = (GS::UniString(s).Compare("outside") == 0);
+    } else if (lua_isinteger(L, -1)) {
+        wallSideOutside = (lua_tointeger(L, -1) != 0);
+    }
+    lua_pop(L, 1);
+    if (wallElem.wall.flipped)
+        wallSideOutside = !wallSideOutside;
 
     // Set up window element
     API_Element elem;
@@ -1127,6 +1167,13 @@ static int AddWindow(lua_State* L)
     elem.window.openingBase.width = width;
     elem.window.lower = sillHeight;
     elem.window.openingBase.reflected = mirrored;
+    elem.window.openingBase.refSide = wallSideOutside;
+
+    // Set ac_OpeningSide (A=inside, B=outside) in the memo before Create.
+    // A post-create Change of this GDL param does not flip the window; it must be
+    // applied to the parameter memo passed to ACAPI_Element_Create.
+    SetMemoGDLParam(memo, "ac_OpeningSide", true, wallSideOutside ? "B" : "A", 0.0);
+    SetMemoGDLParam(memo, "gs_open_2D", false, nullptr, openingAngle);
 
     // Create
     API_Guid createdGuid = APINULLGuid;
@@ -1146,7 +1193,7 @@ static int AddWindow(lua_State* L)
         return 2;
     }
 
-    // Post-create: mirror only (wallSide handled by Lua setGDLParam)
+    // Post-create: re-apply mirror flag via Change (redundant safety, keeps param state in sync)
     ACAPI_CallUndoableCommand("Post-create Window", [&]() -> GSErrCode {
         API_Element elem2;
         BNZeroMemory(&elem2, sizeof(elem2));
@@ -1155,7 +1202,9 @@ static int AddWindow(lua_State* L)
         API_Element mask2;
         ACAPI_ELEMENT_MASK_CLEAR(mask2);
         elem2.window.openingBase.reflected = mirrored;
+        elem2.window.openingBase.refSide = wallSideOutside;
         ACAPI_ELEMENT_MASK_SET(mask2, API_WindowType, openingBase.reflected);
+        ACAPI_ELEMENT_MASK_SET(mask2, API_WindowType, openingBase.refSide);
         return ACAPI_Element_Change(&elem2, &mask2, nullptr, 0, true);
     });
 
@@ -1204,19 +1253,22 @@ static int AddDoor(lua_State* L)
     double width = lua_isnumber(L, -1) ? lua_tonumber(L, -1) : 0.9;
     lua_pop(L, 1);
 
-    lua_getfield(L, 2, "wallSide");
-    bool wallSideInside = false;
-    if (lua_isstring(L, -1)) {
-        const char* s = lua_tostring(L, -1);
-        wallSideInside = (GS::UniString(s).Compare("inside") == 0);
-    } else if (lua_isinteger(L, -1)) {
-        wallSideInside = (lua_tointeger(L, -1) != 0);
-    }
-    lua_pop(L, 1);
-
     lua_getfield(L, 2, "mirrored");
     bool mirrored = lua_toboolean(L, -1);
     lua_pop(L, 1);
+
+    // Wall side: "inside" / "outside", resolved against the wall's flipped state
+    lua_getfield(L, 2, "wallSide");
+    bool wallSideOutside = false;
+    if (lua_isstring(L, -1)) {
+        const char* s = lua_tostring(L, -1);
+        wallSideOutside = (GS::UniString(s).Compare("outside") == 0);
+    } else if (lua_isinteger(L, -1)) {
+        wallSideOutside = (lua_tointeger(L, -1) != 0);
+    }
+    lua_pop(L, 1);
+    if (wallElem.wall.flipped)
+        wallSideOutside = !wallSideOutside;
 
     // Set up door element
     API_Element elem;
@@ -1282,7 +1334,11 @@ static int AddDoor(lua_State* L)
     elem.door.objLoc = objLoc;
     elem.door.openingBase.height = height;
     elem.door.openingBase.width = width;
-    // NOTE: wallSide/reflected not in AC27 API_DoorType — use GDL params instead
+    elem.door.openingBase.reflected = mirrored;
+    elem.door.openingBase.refSide = wallSideOutside;
+
+    // Set ac_OpeningSide (A=inside, B=outside) in the memo before Create.
+    SetMemoGDLParam(memo, "ac_OpeningSide", true, wallSideOutside ? "B" : "A", 0.0);
 
     // Create
     char errorMsg[256];

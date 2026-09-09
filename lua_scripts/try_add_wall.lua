@@ -25,7 +25,8 @@ if wallGuid then
             height = 1.5,
             width = 1.0,
             sillHeight = 0.9,
-            wallSide = "outside",
+            refSide = "outside",
+            oSide = "outside",
             mirrored = false
         })
         if winGuid then
@@ -37,7 +38,8 @@ if wallGuid then
             objLoc = 4.0,
             height = 2.0,
             width = 0.9,
-            wallSide = "inside",
+            refSide = "inside",
+            oSide = "inside",
             mirrored = true
         })
         if doorGuid then

@@ -1131,18 +1131,24 @@ static int AddWindow(lua_State* L)
     double openingAngle = lua_isnumber(L, -1) ? lua_tonumber(L, -1) : 45.0;
     lua_pop(L, 1);
 
-    // Wall side: "inside" / "outside", resolved against the wall's flipped state
-    lua_getfield(L, 2, "wallSide");
-    bool wallSideOutside = false;
-    if (lua_isstring(L, -1)) {
-        const char* s = lua_tostring(L, -1);
-        wallSideOutside = (GS::UniString(s).Compare("outside") == 0);
-    } else if (lua_isinteger(L, -1)) {
-        wallSideOutside = (lua_tointeger(L, -1) != 0);
-    }
-    lua_pop(L, 1);
-    if (wallElem.wall.flipped)
-        wallSideOutside = !wallSideOutside;
+    // Wall sides: refSide ("inside"/"outside") and oSide ("inside"/"outside"), each
+    // resolved against the wall's flipped state. They are distinct controls.
+    auto readSideFlag = [&](const char* key) -> bool {
+        lua_getfield(L, 2, key);
+        bool outside = false;
+        if (lua_isstring(L, -1)) {
+            const char* s = lua_tostring(L, -1);
+            outside = (GS::UniString(s).Compare("outside") == 0);
+        } else if (lua_isinteger(L, -1)) {
+            outside = (lua_tointeger(L, -1) != 0);
+        }
+        lua_pop(L, 1);
+        if (wallElem.wall.flipped)
+            outside = !outside;
+        return outside;
+    };
+    bool refSideOutside = readSideFlag("refSide");
+    bool oSideOutside = readSideFlag("oSide");
 
     // Set up window element
     API_Element elem;
@@ -1167,13 +1173,13 @@ static int AddWindow(lua_State* L)
     elem.window.openingBase.width = width;
     elem.window.lower = sillHeight;
     elem.window.openingBase.reflected = mirrored;
-    elem.window.openingBase.refSide = wallSideOutside;
-    elem.window.openingBase.oSide = wallSideOutside;
+    elem.window.openingBase.refSide = refSideOutside;
+    elem.window.openingBase.oSide = oSideOutside;
 
     // Set ac_OpeningSide (A=inside, B=outside) in the memo before Create.
     // A post-create Change of this GDL param does not flip the window; it must be
     // applied to the parameter memo passed to ACAPI_Element_Create.
-    SetMemoGDLParam(memo, "ac_OpeningSide", true, wallSideOutside ? "B" : "A", 0.0);
+    SetMemoGDLParam(memo, "ac_OpeningSide", true, oSideOutside ? "B" : "A", 0.0);
     SetMemoGDLParam(memo, "gs_open_2D", false, nullptr, openingAngle);
 
     // Create
@@ -1203,8 +1209,8 @@ static int AddWindow(lua_State* L)
         API_Element mask2;
         ACAPI_ELEMENT_MASK_CLEAR(mask2);
         elem2.window.openingBase.reflected = mirrored;
-        elem2.window.openingBase.refSide = wallSideOutside;
-        elem2.window.openingBase.oSide = wallSideOutside;
+        elem2.window.openingBase.refSide = refSideOutside;
+        elem2.window.openingBase.oSide = oSideOutside;
         ACAPI_ELEMENT_MASK_SET(mask2, API_WindowType, openingBase.reflected);
         ACAPI_ELEMENT_MASK_SET(mask2, API_WindowType, openingBase.refSide);
         ACAPI_ELEMENT_MASK_SET(mask2, API_WindowType, openingBase.oSide);
@@ -1260,18 +1266,24 @@ static int AddDoor(lua_State* L)
     bool mirrored = lua_toboolean(L, -1);
     lua_pop(L, 1);
 
-    // Wall side: "inside" / "outside", resolved against the wall's flipped state
-    lua_getfield(L, 2, "wallSide");
-    bool wallSideOutside = false;
-    if (lua_isstring(L, -1)) {
-        const char* s = lua_tostring(L, -1);
-        wallSideOutside = (GS::UniString(s).Compare("outside") == 0);
-    } else if (lua_isinteger(L, -1)) {
-        wallSideOutside = (lua_tointeger(L, -1) != 0);
-    }
-    lua_pop(L, 1);
-    if (wallElem.wall.flipped)
-        wallSideOutside = !wallSideOutside;
+    // Wall sides: refSide ("inside"/"outside") and oSide ("inside"/"outside"), each
+    // resolved against the wall's flipped state. They are distinct controls.
+    auto readSideFlag = [&](const char* key) -> bool {
+        lua_getfield(L, 2, key);
+        bool outside = false;
+        if (lua_isstring(L, -1)) {
+            const char* s = lua_tostring(L, -1);
+            outside = (GS::UniString(s).Compare("outside") == 0);
+        } else if (lua_isinteger(L, -1)) {
+            outside = (lua_tointeger(L, -1) != 0);
+        }
+        lua_pop(L, 1);
+        if (wallElem.wall.flipped)
+            outside = !outside;
+        return outside;
+    };
+    bool refSideOutside = readSideFlag("refSide");
+    bool oSideOutside = readSideFlag("oSide");
 
     // Set up door element
     API_Element elem;
@@ -1338,11 +1350,11 @@ static int AddDoor(lua_State* L)
     elem.door.openingBase.height = height;
     elem.door.openingBase.width = width;
     elem.door.openingBase.reflected = mirrored;
-    elem.door.openingBase.refSide = wallSideOutside;
-    elem.door.openingBase.oSide = wallSideOutside;
+    elem.door.openingBase.refSide = refSideOutside;
+    elem.door.openingBase.oSide = oSideOutside;
 
     // Set ac_OpeningSide (A=inside, B=outside) in the memo before Create.
-    SetMemoGDLParam(memo, "ac_OpeningSide", true, wallSideOutside ? "B" : "A", 0.0);
+    SetMemoGDLParam(memo, "ac_OpeningSide", true, oSideOutside ? "B" : "A", 0.0);
 
     // Create
     char errorMsg[256];

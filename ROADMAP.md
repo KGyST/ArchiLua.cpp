@@ -83,12 +83,33 @@
 	- If the window is seleced, its properties (Width, Height etc) in the UI Entries should be displayed correctly.
 	- If UI entries are changed, window should follow the changes
 	- Only evaluate this:
-		- If poessible, if the window is changed another way (on ArchiCAD GUI etc) the UI Entries should follow. How complicated  is this (event handlers) 
+		- If poessible, if the window is changed another way (on ArchiCAD GUI etc) the UI Entries should follow. How complicated  is this (event handlers)
+		- [x] **EVALUATION DONE (2026-08-07):** Element modification events are a first-class AC27 API feature. See **Phase 3.7 → Event Listeners** for the confirmed design. UI-follows-window is feasible via `APINotifyElement_Change`; effort is low once the observer layer (Phase 3.7) exists.
 - [ ] **Windows Registry Handling:**
   - Persist GUI input field values into Windows Registry under `HKCU\Software\Samu\ArchiLua\try_web_gui`.
   - Create Win32 Registry C++ helper wrappers based on `CommonCppLibs` and expose them to Lua (`acapi.regRead`, `acapi.regWrite`).
 	
-## Phase 3.7: PolygonReducer Port to ArchiLua (Interactive PoC)
+## Phase 3.7: Minimalist Wall Observer (PoC Only)
+
+- [ ] **Minimal C++ API Binding:**
+  - Expose two simple C++ functions to Lua:
+    - `acapi.watch(guid)` → calls `ACAPI_Element_AttachObserver(guid)`.
+    - `acapi.unwatch(guid)` → calls `ACAPI_Element_DetachObserver(guid)`.
+  - In the global `APIElementEventHandlerProc` callback:
+    - On `APINotifyElement_Change` or `APINotifyElement_Edit`, dispatch a single generic Lua event `onElementChanged(guid)`.
+    - Ignore property changes, classifications, transform matrices, and undo/redo variants.
+
+- [ ] **Lua Integration (`try_window_placer.lua`):**
+  - When picking a wall via `onPickWall`, automatically call `acapi.watch(selectedWall)`.
+  - Define `UI_EVENTS.onElementChanged = function(guid)`:
+    - If `guid == selectedWall`, re-trigger the window placement/update logic to keep the window synchronized with the moved wall.
+
+- [ ] **Verification Gate:**
+  - Drag or move the watched wall in ArchiCAD 2D/3D viewport.
+  - Verify that `onElementChanged` fires in Lua and the window updates position.
+  - Do NOT implement watched-lists, UI observer panels, or complex C++ classes.
+
+## Phase 3.8: PolygonReducer Port to ArchiLua (Interactive PoC)
 - [ ] **Reference Code Analysis:**
   - Read reference implementation from `docs/reference/PolygonReducer.cpp` (or local repo reference).
   - Identify required C++ Bridge extensions for `API_ElementMemo` handling:
@@ -119,8 +140,7 @@
 ## Phase 5: Scaling (Post-MVP)
 - [ ] **Userdata Migration:** Replace Lua tables with full userdata + metatables for element objects. Adds `__index` for lazy access, `__newindex` for writes, `__gc` for cleanup, type identity via metatable comparison.
 - [ ] **GUI Integration:** `LUA-LIMGUI` (Dear ImGui) overlay for real-time parameter tweaking.
-- [ ] **Event Listeners:** Lua callbacks triggered by ArchiCAD element modification events.
-  - A wall modified can trigger a lua script again that was run on that wall.
+- [x] **Event Listeners:** Lua callbacks triggered by ArchiCAD element modification events. **MOVED to Phase 3.7** (own phase, was listed here). A wall modified can trigger a lua script again that was run on that wall.
 - [ ] **Automated Header Export:** Python/Clang-AST script to batch-generate Lua bindings for the full AC API.
 - [ ] **ArchiCAD 28/29:** support
 - [ ] **SamuTeszt Hook:** JSON dump of Lua tables before/after placement for regression testing.

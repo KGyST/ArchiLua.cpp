@@ -392,6 +392,44 @@ inline API_Coord ToCoord (const API_Coord3D& inCoo)
 	return coo;
 }
 
+// Rubberline callback: force the standard arrow cursor during interactive input
+/*
+static void __ACENV_CALL ClickAnElemRubberLineProc (const API_RubberLineInfo* /*info*\/)
+{
+	::SetCursor (::LoadCursor (nullptr, IDC_ARROW));
+}
+
+// Helper: activate the ArchiCAD Arrow (selection) tool so that the black arrow
+// cursor is shown even when the mouse stops over a valid neig.
+static void ActivateArrowTool ()
+{
+	API_ToolBoxItem item = {};
+	item.type = API_ZombieElemID;
+	ACAPI_Toolbox_SetToolBoxMode (&item);
+}
+*/
+
+// Helper: build an API_CursorSet that uses the standard black ArchiCAD arrow for all states
+static API_CursorSet GetArrowCursorSet ()
+	{
+		API_CursorSet cs = {};
+		cs.nothingOnCursor = APICursor_Arrow;
+		cs.pointOnCursor = APICursor_ArrowCheck;
+		cs.lineOnCursor = APICursor_ArrowBranch;
+		cs.refPointOnCursor = APICursor_ArrowCheckRef;
+		cs.refLineOnCursor = APICursor_ArrowBranchRef;
+		cs.crossOnCursor = APICursor_ArrowXPoint;
+		cs.normalOnCursor = APICursor_ArrowNormal;
+		cs.tangentOnCursor = APICursor_ArrowTangent;
+		cs.invalpointCursor = APICursor_Arrow;
+		cs.areaOnCursor = APICursor_Arrow;
+		//cs.lineSurfCrossOnCursor = APICursor_Arrow;
+		//cs.lineSurfNormOnCursor = APICursor_Arrow;
+		//cs.surfSurfCrossCursor = APICursor_Arrow;
+		//cs.surfSurfNormOnCursor = APICursor_Arrow;
+		return cs;
+	}
+
 // -----------------------------------------------------------------------------
 // Ask the user to click a point
 // -----------------------------------------------------------------------------
@@ -402,9 +440,13 @@ bool	ClickAPoint (const char		*prompt,
 	API_GetPointType	pointInfo = {};
 	GSErrCode			err;
 
+	// ActivateArrowTool ();
 	CHTruncate (prompt, pointInfo.prompt, sizeof (pointInfo.prompt));
 	pointInfo.changeFilter = false;
 	pointInfo.changePlane  = false;
+	 pointInfo.changeCursorSet = true;
+	 pointInfo.cursorSet = GetArrowCursorSet ();
+	// err = ACAPI_UserInput_GetPoint (&pointInfo, ClickAnElemRubberLineProc);
 	err = ACAPI_UserInput_GetPoint (&pointInfo);
 	if (err != NoError) {
 		if (err != APIERR_CANCEL) {
@@ -418,7 +460,7 @@ bool	ClickAPoint (const char		*prompt,
 	c->y = pointInfo.pos.y;
 
 	return true;
-}		// ClickAPoint
+}	// ClickAPoint
 
 
 // -----------------------------------------------------------------------------
@@ -497,9 +539,13 @@ bool	ClickAnElem (const char*			prompt,
 	API_ElemType		clickedType;
 	GSErrCode			err;
 
+	// ActivateArrowTool ();
 	CHTruncate (prompt, pointInfo.prompt, sizeof (pointInfo.prompt));
 	pointInfo.changeFilter = false;
 	pointInfo.changePlane  = false;
+	 pointInfo.changeCursorSet = true;
+	 pointInfo.cursorSet = GetArrowCursorSet ();
+	// err = ACAPI_UserInput_GetPoint (&pointInfo, ClickAnElemRubberLineProc);
 	err = ACAPI_UserInput_GetPoint (&pointInfo);
 	if (err != NoError) {
 		if (err != APIERR_CANCEL) {

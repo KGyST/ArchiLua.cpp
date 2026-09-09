@@ -88,9 +88,21 @@ msbuild ... /t:Clean                 # clean build outputs
 ```
 
 # Commit conventions
-- **EoD / EoW / EoY** — End of Day, End of Week, End of Year temp commits (like `_temp`).
-- EoD messages must start with `Eod`.
-- These are placeholder commits; when a real feature commit is done, amend into it.
+- If a `[x]` marked feature is finished, a commit must be done
+- During a longer/harder development, smaller verified by user improvements must be commited by a temporary commit (commit message starting `_` ).
+- **EoD / EoW / EoY** — End of Day, End of Week, End of Year temp commits (like `_temp`). EoD messages must start with `EoD` etc. Must be done if user asks for them.
+  - These placeholder commits must be amended when a `[x]` commit is done (a feature is finished and commited)
+	
+## Format conventions
+- Date format is Hungarian `YYMMDDWw`, like `260808Szo` (for `Szombat`/`Saturday`) 
+- `ROADMAP.md` Format:
+  - `## Phase` for phases
+    - `[ ]` / `[x]` for individual testable features
+      - `-` for feature descriptions
+	- After a Phase is done, the `-` all descriptions can be removed from the finished phase for compacting
+	  - For all Phases before the just finished phases `[ ]` / `[x]` points can be removed and a summarization of them should be added. A finished Phase should look like this:
+		`## Phase x: Short description
+		  - Summary of features done` 
 
 # Project Rules
 - Always consult `Architectural Decision Records/` before making significant architectural changes.
@@ -107,7 +119,7 @@ msbuild ... /t:Clean                 # clean build outputs
 5. **Structure (use semantic line breaks — one sentence per line for readability):**
    # ADR: [Title]
    - Status: [Accepted/Draft]
-   - Date: [YYYY-MM-DD]
+   - Date: [YYMMDD]
    - Context: [The technical challenge]
    - Decision: [The proposed solution]
 		- Every offered/considered Alternative must be mentioned

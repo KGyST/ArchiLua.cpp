@@ -43,9 +43,9 @@ Without begin/end, each write call creates its own undo step.
 
 `local guid = acapi.addWall({ begC={x,y}, endC={x,y}, height, thickness, layer, floor })` — create a new straight wall. `floor` defaults to 1; also accepts `storey` as alias. Pass `poly` table (array of `{x,y}`) instead of `begC`/`endC` for a polygonal wall.
 
-`local guid = acapi.addWindow(wallGuid, { objLoc, height, width, sillHeight, wallSide, mirrored })` — place a window in a straight wall. `wallSide` (`"inside"`/`"outside"`) and `mirrored` (bool) control orientation.
+`local guid = acapi.addWindow(wallGuid, { objLoc, height, width, sillHeight, refSide, oSide, mirrored })` — place a window in a straight wall. `refSide` and `oSide` (each `"inside"`/`"outside"`, resolved against the wall's flip) and `mirrored` (bool) control orientation.
 
-`local guid = acapi.addDoor(wallGuid, { objLoc, height, width, wallSide, mirrored })` — place a door in a straight wall. Same params as `addWindow` (no `sillHeight`).
+`local guid = acapi.addDoor(wallGuid, { objLoc, height, width, refSide, oSide, mirrored })` — place a door in a straight wall. Same params as `addWindow` (no `sillHeight`).
 
 `local guid = acapi.addSlab({ poly, thickness, layer, floor })` — create a polygonal slab. `poly` is an array of `{x,y}` vertices.
 

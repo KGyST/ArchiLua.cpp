@@ -28,13 +28,14 @@ local function HandlePlaceWindow(args)
     args.height = args.height or 1.5
     args.width = args.width or 1.0
     args.sillHeight = args.sillHeight or 0.9
-    args.wallSide = args.wallSide or "inside"
+    args.refSide = args.refSide or "inside"
+    args.oSide = args.oSide or "inside"
     args.mirrored = args.mirrored or false
     args.openingAngle = args.openingAngle or 45
 
     local guid, err = acapi.addWindow(selectedWall, args)
     if guid then
-        SetWebResult("Window placed! wallSide=" .. tostring(args.wallSide))
+        SetWebResult("Window placed! refSide=" .. tostring(args.refSide) .. " oSide=" .. tostring(args.oSide))
     else
         SetWebResult("Error: " .. tostring(err))
     end
@@ -68,8 +69,14 @@ select{margin:4px 0;}
 <div class='row'><label>Height (m):</label><input id='height' type='number' value='1.5' step='0.1'></div>
 <div class='row'><label>Width (m):</label><input id='width' type='number' value='1.0' step='0.1'></div>
 <div class='row'><label>Sill (m):</label><input id='sillHeight' type='number' value='0.9' step='0.1'></div>
-<div class='row'><label>Side:</label>
-  <select id='wallSide'>
+<div class='row'><label>RefSide:</label>
+  <select id='refSide'>
+    <option value='inside'>Inside</option>
+    <option value='outside'>Outside</option>
+  </select>
+</div>
+<div class='row'><label>oSide:</label>
+  <select id='oSide'>
     <option value='inside'>Inside</option>
     <option value='outside'>Outside</option>
   </select>
@@ -90,7 +97,8 @@ function placeWindow(){
         height: parseFloat(f('height').value),
         width: parseFloat(f('width').value),
         sillHeight: parseFloat(f('sillHeight').value),
-        wallSide: f('wallSide').value,
+        refSide: f('refSide').value,
+        oSide: f('oSide').value,
         mirrored: f('mirrored').checked,
         openingAngle: parseFloat(f('openingAngle').value)
     }));

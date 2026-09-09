@@ -23,8 +23,6 @@ static int L_PickWall(lua_State* L)
     API_Coord3D clickPos;
     bool ok = ClickAnElem("Click a wall to select it", API_WallID,
                           nullptr, nullptr, &guid, &clickPos);
-    // Reset cursor to arrow after pick operation (prevents pencil cursor lingering)
-    // ::SetCursor(::LoadCursor(nullptr, IDC_ARROW));
     if (ok && guid != APINULLGuid) {
         GS::UniString guidStr = APIGuidToString(guid);
         lua_pushstring(L, guidStr.ToCStr().Get());

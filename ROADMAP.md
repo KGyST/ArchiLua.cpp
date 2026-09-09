@@ -12,22 +12,10 @@
 ## Phase 2.5: Extended Reading and Fixes ✓
   - Generic `acapi.get/getPoly/getWall/getparams`, `try_selection.lua` demo; DAP debugger attach; modal → modeless (`DG::Palette`) GUI; last-script-path registry persistence; clang-tidy pre-commit hook; type-name mapping ADR (C++ switch).
 ## Phase 3: The Action (Writing) ✓
-- [x] **Transaction Guard:** `acapi.beginundo(label)` / `acapi.endundo()` — buffers changes in `PendingChange` vector, flushes in a single `ACAPI_CallUndoableCommand`. Standalone writes (outside begin/end) auto-create their own undo step via `ACAPI_CallUndoableCommand`.
-- [x] **Object Modification:** `acapi.setwall(guid, table)` modifies wall properties (height, thickness, layer, begC/endC) and writes back via `ACAPI_Element_Change` with mask.
-- [x] **Generic Setter:** `acapi.set(guid, table)` for any element type — reads `API_Element_Get`, applies `layer` (common field), dispatches type-specific fields.
-- [x] **Parameter Writing:** `acapi.setparams(guid, {name=value})` writes GDL parameters via `ACAPI_Element_GetMemo(APIMemoMask_AddPars)` + `ACAPI_Element_Change(APIMemoMask_AddPars)` pattern.
-- [x] **Object Finder:** `acapi.findobject(name)` searches Library Part by name via `ACAPI_LibraryPart_Search`, returns `libInd` + display name.
-- [x] **Placement:** `acapi.create(libInd, position, params)` wraps `ACAPI_Element_Create` with optional initial GDL parameter overrides.
+  - Undoable writes (`beginundo`/`endundo` + auto undo steps); `setwall`/`set`/`setparams` via masked `ACAPI_Element_Change`; `findobject` library search; `create` element placement with GDL overrides.
 
 ## Phase 3.5: Element Creation ✓
-- [x] **Create Wall:** `acapi.addWall({begC={x,y}, endC={x,y}, height, thickness, layer})` — creates a new wall element via `ACAPI_Element_Create` wrapped in an undoable command.
-- [x] **Create Window in Wall:** `acapi.addWindow(wallGuid, {objLoc, height, width, sillHeight, wallSide, mirrored})` — places a window in a straight wall with side/mirror control.
-- [x] **Example Script:** `lua_scripts/try_add_wall.lua` demonstrates wall + window creation.
-- [x] **Polygonal Walls:** `addWall` with `poly` table for polygonal wall geometry via `API_ElementMemo.coords`.
-- [x] **Wall Side + Mirroring:** `addWindow` with `wallSide` ("inside"/"outside") and `mirrored` params. `addDoor` analogous.
-- [x] **Doors:** `acapi.addDoor(wallGuid, params)` — places a door in a wall (mirrors `addWindow` with `API_DoorID`).
-- [x] **Slabs:** `acapi.addSlab({poly, thickness, layer, floor})` — creates a polygonal slab element.
-- [x] **Roofs:** `acapi.addRoof({poly, thickness, layer, floor})` — creates a polygonal roof element.
+  - `addWall` (straight + polygonal), `addWindow`/`addDoor` with side/mirror control, `addSlab`, `addRoof`; `try_add_wall.lua` demo.
 
 ## Phase 3.6: Event Dispatcher Table (EDT) — Lua-Driven Web GUI ✓
 - [x] **Web Palette Skeleton:** Modeless `DG::Palette` with `DG::Browser` (WebView2).

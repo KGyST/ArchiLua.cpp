@@ -82,9 +82,10 @@
   - Windows on the picked wall are listed in a dropdown selection.
   - Selecting a window loads its properties (`objLoc`, width, height, sill, refSide, oSide, mirrored, opening angle) into the UI entries via `acapi.getWindow()`.
   - Changing UI entries and clicking "Update Window" updates the window via `acapi.setWindow()`.
-- [ ] **Windows Registry Handling:**
-  - Persist GUI input field values into Windows Registry under `HKCU\Software\Samu\ArchiLua\try_web_gui`.
-  - Create Win32 Registry C++ helper wrappers based on `CommonCppLibs` and expose them to Lua (`acapi.regRead`, `acapi.regWrite`).
+- [x] **Windows Registry Handling:**
+  - `acapi.regRead(section, key[, default])` / `acapi.regWrite(section, key, value)` in `src/API/APIModule.hpp`, strictly scoped to `HKCU\Software\Samu\ArchiLua\<section>\` (section/key validated to `[A-Za-z0-9_]{1,64}`; values stored as `REG_SZ`).
+  - Self-contained WinAPI implementation (two-step sized reads, every `LSTATUS` checked) instead of `CommonLibs` WinReg helpers: `GetRegString()` silently drops values > 255 chars and `GetOrCreateRegPath()` uses the `HKEY` unchecked.
+  - `lua_scripts/try_window_placer.lua` persists all form fields on save and restores them on load (section `try_window_placer`).
 	
 ## Phase 3.7: Minimalist Wall Observer (PoC Only)
 

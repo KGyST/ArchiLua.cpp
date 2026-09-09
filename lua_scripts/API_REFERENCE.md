@@ -54,3 +54,9 @@ Without begin/end, each write call creates its own undo step.
 `local guid = acapi.addSlab({ poly, thickness, layer, floor })` — create a polygonal slab. `poly` is an array of `{x,y}` vertices.
 
 `local guid = acapi.addRoof({ poly, thickness, layer, floor })` — create a polygonal roof.
+
+## Registry (persist GUI values)
+
+`local v = acapi.regRead(section, key[, default])` — read a string from `HKCU\Software\Samu\ArchiLua\<section>`. Returns `default` (or `nil`) when missing. Section/key must match `[A-Za-z0-9_]{1,64}`, so scripts cannot escape the sandbox.
+
+`acapi.regWrite(section, key, value)` — write a string/number/boolean (stored as `REG_SZ`, max 4000 chars) under `HKCU\Software\Samu\ArchiLua\<section>`. Returns `true` on success.

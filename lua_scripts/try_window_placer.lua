@@ -71,6 +71,11 @@ local function HandleSaveWindow(args)
     args.mirrored = args.mirrored or false
     args.openingAngle = args.openingAngle or 45
 
+    -- Persist form values for the next session (HKCU\Software\Samu\ArchiLua\try_window_placer)
+    for _, k in ipairs({"objLoc", "height", "width", "sillHeight", "refSide", "oSide", "mirrored", "openingAngle"}) do
+        acapi.regWrite("try_window_placer", k, tostring(args[k]))
+    end
+
     -- Use the dropdown selection sent from JS, not the stale global,
     -- so "Place New Window" really creates instead of updating the last window.
     local target = (args.guid and args.guid ~= "") and args.guid or nil
@@ -233,3 +238,33 @@ function saveWindow(){
 </body>
 </html>
 ]])
+
+-- Restore persisted form values from the previous session
+do
+    local sec = "try_window_placer"
+    local function regNum(key, def)
+        local v = tonumber(acapi.regRead(sec, key))
+        return v ~= nil and v or def
+    end
+    local function regStr(key, def)
+        local v = acapi.regRead(sec, key)
+        return type(v) == "string" and v or def
+    end
+    local function regSide(key)
+        local v = regStr(key, "inside")
+        return (v == "outside") and "outside" or "inside"
+    end
+    local mirroredJson = (regStr("mirrored", "false") == "true") and "true" or "false"
+    local json = string.format(
+        '{"objLoc":%f,"height":%f,"width":%f,"sillHeight":%f,"refSide":"%s","oSide":"%s","mirrored":%s,"openingAngle":%f}',
+        regNum("objLoc", 2.0),
+        regNum("height", 1.5),
+        regNum("width", 1.0),
+        regNum("sillHeight", 0.9),
+        regSide("refSide"),
+        regSide("oSide"),
+        mirroredJson,
+        regNum("openingAngle", 45)
+    )
+    ExecuteJS("populateWindow(" .. json .. ");")
+end

@@ -1814,6 +1814,154 @@ static int GetCurrentFloor(lua_State* L)
     return 1;
 }
 
+// ---------------------------------------------------------------------------
+// Windows Registry persistence, strictly scoped to
+// HKCU\Software\Samu\ArchiLua\<section>\ (section/key = [A-Za-z0-9_]+ only).
+// Values are stored as REG_SZ; numbers/booleans round-trip as strings.
+// NOTE: CommonLibs WinReg helpers were NOT used here: GetRegString() silently
+// drops values > 255 chars (fixed buffer, return code ignored) and
+// GetOrCreateRegPath() uses the HKEY unchecked. The helpers below size the
+// read buffer in two steps and check every LSTATUS.
+// ---------------------------------------------------------------------------
+
+static bool RegNameValid(const char* s)
+{
+    if (s == nullptr || *s == '\0')
+        return false;
+    size_t len = 0;
+    for (const char* p = s; *p != '\0'; ++p) {
+        char c = *p;
+        bool ok = (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') ||
+                  (c >= '0' && c <= '9') || c == '_';
+        if (!ok)
+            return false;
+        if (++len > 64)
+            return false;
+    }
+    return true;
+}
+
+static std::wstring RegToWide(const char* utf8)
+{
+    int wlen = MultiByteToWideChar(CP_UTF8, 0, utf8, -1, nullptr, 0);
+    if (wlen <= 0)
+        return std::wstring();
+    std::wstring w(wlen, L'\0');
+    MultiByteToWideChar(CP_UTF8, 0, utf8, -1, &w[0], wlen);
+    w.resize(wlen > 0 ? (size_t)(wlen - 1) : 0);
+    return w;
+}
+
+static std::string RegToUtf8(const wchar_t* w, size_t wlen)
+{
+    int mlen = WideCharToMultiByte(CP_UTF8, 0, w, (int)wlen, nullptr, 0, nullptr, nullptr);
+    if (mlen <= 0)
+        return std::string();
+    std::string s(mlen, '\0');
+    WideCharToMultiByte(CP_UTF8, 0, w, (int)wlen, &s[0], mlen, nullptr, nullptr);
+    return s;
+}
+
+static int RegRead(lua_State* L)
+{
+    const char* section = lua_tostring(L, 1);
+    const char* key = lua_tostring(L, 2);
+    if (!RegNameValid(section) || !RegNameValid(key)) {
+        lua_pushnil(L);
+        lua_pushstring(L, "regRead: section and key must be [A-Za-z0-9_]{1,64}");
+        return 2;
+    }
+
+    std::wstring subkey = L"Software\\Samu\\ArchiLua\\";
+    subkey += RegToWide(section);
+    std::wstring wkey = RegToWide(key);
+
+    DWORD size = 0;
+    LSTATUS st = RegGetValueW(HKEY_CURRENT_USER, subkey.c_str(), wkey.c_str(),
+                              RRF_RT_REG_SZ, nullptr, nullptr, &size);
+    if (st != ERROR_SUCCESS || size == 0 || size > 65536) {
+        if (lua_gettop(L) >= 3)
+            lua_pushvalue(L, 3); // default
+        else
+            lua_pushnil(L);
+        return 1;
+    }
+
+    std::wstring wval(size / sizeof(wchar_t), L'\0');
+    st = RegGetValueW(HKEY_CURRENT_USER, subkey.c_str(), wkey.c_str(),
+                      RRF_RT_REG_SZ, nullptr, &wval[0], &size);
+    if (st != ERROR_SUCCESS) {
+        if (lua_gettop(L) >= 3)
+            lua_pushvalue(L, 3);
+        else
+            lua_pushnil(L);
+        return 1;
+    }
+
+    size_t wlen = size / sizeof(wchar_t);
+    while (wlen > 0 && wval[wlen - 1] == L'\0')
+        --wlen;
+    std::string out = RegToUtf8(wval.c_str(), wlen);
+    lua_pushstring(L, out.c_str());
+    return 1;
+}
+
+static int RegWrite(lua_State* L)
+{
+    const char* section = lua_tostring(L, 1);
+    const char* key = lua_tostring(L, 2);
+    if (!RegNameValid(section) || !RegNameValid(key)) {
+        lua_pushboolean(L, false);
+        lua_pushstring(L, "regWrite: section and key must be [A-Za-z0-9_]{1,64}");
+        return 2;
+    }
+
+    std::string value;
+    if (lua_type(L, 3) == LUA_TSTRING)
+        value = lua_tostring(L, 3);
+    else if (lua_isnumber(L, 3))
+        value = lua_tostring(L, 3);
+    else if (lua_isboolean(L, 3))
+        value = lua_toboolean(L, 3) ? "true" : "false";
+    else {
+        lua_pushboolean(L, false);
+        lua_pushstring(L, "regWrite: value must be string, number or boolean");
+        return 2;
+    }
+    if (value.size() > 4000) {
+        lua_pushboolean(L, false);
+        lua_pushstring(L, "regWrite: value too long (max 4000 chars)");
+        return 2;
+    }
+
+    std::wstring subkey = L"Software\\Samu\\ArchiLua\\";
+    subkey += RegToWide(section);
+    std::wstring wkey = RegToWide(key);
+    std::wstring wval = RegToWide(value.c_str());
+
+    HKEY hKey = nullptr;
+    LSTATUS st = RegCreateKeyExW(HKEY_CURRENT_USER, subkey.c_str(), 0, nullptr,
+                                 REG_OPTION_NON_VOLATILE, KEY_SET_VALUE, nullptr, &hKey, nullptr);
+    if (st != ERROR_SUCCESS || hKey == nullptr) {
+        lua_pushboolean(L, false);
+        lua_pushfstring(L, "regWrite: cannot open key (%d)", (int)st);
+        return 2;
+    }
+
+    st = RegSetValueExW(hKey, wkey.c_str(), 0, REG_SZ,
+                        reinterpret_cast<const BYTE*>(wval.c_str()),
+                        (DWORD)((wval.size() + 1) * sizeof(wchar_t)));
+    RegCloseKey(hKey);
+
+    if (st != ERROR_SUCCESS) {
+        lua_pushboolean(L, false);
+        lua_pushfstring(L, "regWrite failed (%d)", (int)st);
+        return 2;
+    }
+    lua_pushboolean(L, true);
+    return 1;
+}
+
 inline void Register(lua_State* L)
 {
     lua_newtable(L);
@@ -1880,6 +2028,12 @@ inline void Register(lua_State* L)
 
     lua_pushcfunction(L, SetGDLParam);
     lua_setfield(L, -2, "setGDLParam");
+
+    lua_pushcfunction(L, RegRead);
+    lua_setfield(L, -2, "regRead");
+
+    lua_pushcfunction(L, RegWrite);
+    lua_setfield(L, -2, "regWrite");
 
     lua_setglobal(L, "acapi");
 }

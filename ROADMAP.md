@@ -11,6 +11,7 @@
 
 ## Phase 2.5: Extended Reading and Fixes ✓
   - Generic `acapi.get/getPoly/getWall/getparams`, `try_selection.lua` demo; DAP debugger attach; modal → modeless (`DG::Palette`) GUI; last-script-path registry persistence; clang-tidy pre-commit hook; type-name mapping ADR (C++ switch).
+	
 ## Phase 3: The Action (Writing) ✓
   - Undoable writes (`beginundo`/`endundo` + auto undo steps); `setwall`/`set`/`setparams` via masked `ACAPI_Element_Change`; `findobject` library search; `create` element placement with GDL overrides.
 

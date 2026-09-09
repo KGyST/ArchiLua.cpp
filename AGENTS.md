@@ -1,12 +1,14 @@
 # ArchiLua.cpp — Agent Guide
 
-## Project
-
-ArchiCAD 27 add-on (.apx) embedding Lua 5.4 via raw C API.  
-C++17, x64 only, VS 2022 v142 toolset.
+## Specification Files
+- **ARCHITECTURE.md** Project technical description and project structure
+- **README.md** Project user level description and docs
+- **ROADMAP.md** Development pipeline
+  - If a phase is ready, compact the previous one: summarize its content in a short description.
+- Always consult `Architectural Decision Records/` before making significant architectural changes.
+- If you implement any mock or stub, you MUST create a new ADR file in `Architectural Decision Records/` following the standard template.
 
 ## Build (two-stage)
-
 ```bash
 # 1. Fetch + build Lua 5.4.7, generate ArchiLuaDeps.props
 cd deps
@@ -17,6 +19,12 @@ cmake --build build --config Release
 # 2. Build add-on (always clean first to force GRC resource recompilation)
 msbuild ArchiLua.sln /p:Configuration="Debug 27" /p:Platform=x64 "/t:Clean;Build"
 ```
+**Always build `Debug 27`.**
+`assert()` is the runtime check mechanism — it's active in Debug CRT and the reason we use the Debug configuration.
+Release builds are used only for final packaging; never for development iteration.
+
+If ArchiCAD is running and locks the `.pdb` or `.apx` (LNK1104: cannot open file), report to the user and ask them to close ArchiCAD.
+Do NOT kill ArchiCAD automatically.
 
 ## Critical constraints
 
@@ -28,32 +36,6 @@ msbuild ArchiLua.sln /p:Configuration="Debug 27" /p:Platform=x64 "/t:Clean;Build
 - **Debug CRT** needs `ucrtd.lib;msvcrtd.lib;msvcprtd.lib` — not just `msvcrtd.lib`.
 - **`/FS` compiler flag** needed in Debug + Release to avoid C1041 PDB contention.
 - **`FTM::FileTypeManager`** requires a unique ID string (`"ArchiLua"`) — default constructor is private (singleton pattern).
-
-## Structure
-
-| Path | Purpose |
-|---|---|---|
-| `src/Bridge/LuaBridge.hpp` | `Bridge` class: wraps `lua_State*`, `Init`/`ExecuteScript`/`Shutdown` |
-| `src/Bridge/LuaDebugger.hpp` `.cpp` | DAP server: TCP listener, JSON/DAP protocol, Lua debug hook |
-| `src/API/APIModule.hpp` | Lua API functions (`getSel`, `getWall`, `get`, `getPoly`, `getParams`, `setWall`, `addWall`, `addWindow`, etc.) |
-| `src/Console/LuaConsole.hpp` | Overrides Lua `print()` → `ACAPI_WriteReport` |
-| `src/ArchiLua.cpp` | DLL entry, `CheckEnvironment`, `RegisterInterface`, `Initialize`, `MenuCommandHandler` |
-| `deps/CMakeLists.txt` | Lua 5.4.7 FetchContent, generates `ArchiLuaDeps.props` |
-| `RINT/ArchiLua.grc` | Localized STR# resources (name, description, menu) |
-| `RFIX/ArchiLuaFix.grc` | Non-localized MDID resource (add-on ID: `0`, `4015391855`) |
-| `local.props` | Per-machine paths (`ACBuildSupport`, `CommonLibs.cpp`) |
-| `CommonLibs.cpp/` | Submodule: Logger, DateTime, WinReg, Utils, AC27.hpp |
-
-All headers are explicitly listed in `ClInclude` in `ArchiLua.vcxproj` so they appear in Visual Studio's Solution Explorer. When adding a new header, add it to the `ClInclude` group too.
-
-## Build
-
-**Always build `Debug 27`.**
-`assert()` is the runtime check mechanism — it's active in Debug CRT and the reason we use the Debug configuration.
-Release builds are used only for final packaging; never for development iteration.
-
-If ArchiCAD is running and locks the `.pdb` or `.apx` (LNK1104: cannot open file), report to the user and ask them to close ArchiCAD.
-Do NOT kill ArchiCAD automatically.
 
 ## Common pitfalls
 
@@ -103,10 +85,6 @@ msbuild ... /t:Clean                 # clean build outputs
 	  - For all Phases before the just finished phases `[ ]` / `[x]` points can be removed and a summarization of them should be added. A finished Phase should look like this:
 		`## Phase x: Short description
 		  - Summary of features done` 
-
-# Project Rules
-- Always consult `Architectural Decision Records/` before making significant architectural changes.
-- If you implement any mock or stub, you MUST create a new ADR file in `Architectural Decision Records/` following the standard template.
 
 ### ARCHITECTURAL DECISION LOGGING PROTOCOL (ADR)
 

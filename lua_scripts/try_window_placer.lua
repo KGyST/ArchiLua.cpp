@@ -9,40 +9,25 @@ local function HandlePickWall()
         selectedWall = guid
         selectedWindow = nil
         local wallData = acapi.getWall(guid)
-        -- Debug: show raw wallData
-        local debugStr = "wallData: "
-        if wallData then
-            debugStr = debugStr .. "exists, windows="
-            if wallData.windows then
-                debugStr = debugStr .. "table (len=" .. #wallData.windows .. ")"
-                for i, w in ipairs(wallData.windows) do
-                    debugStr = debugStr .. " [" .. i .. "]=" .. tostring(w)
-                end
-            else
-                debugStr = debugStr .. "nil"
-            end
-        else
-            debugStr = debugStr .. "nil"
-        end
-        SetWebResult(debugStr)
-
         local windowsJson = "[]"
-        if wallData and wallData.windows then
+        local nWindows = 0
+        if wallData and wallData.openings and wallData.openings.windows then
             local items = {}
-            for i, wGuid in ipairs(wallData.windows) do
+            for i, wGuid in ipairs(wallData.openings.windows) do
                 table.insert(items, "\"" .. wGuid .. "\"")
             end
+            nWindows = #wallData.openings.windows
             windowsJson = "[" .. table.concat(items, ",") .. "]"
         end
         ExecuteJS("onWallPicked('" .. guid .."', " .. windowsJson .. ");")
+        SetWebResult("Selected wall: " .. guid .. " (" .. nWindows .. " windows)")
     else
         SetWebResult("Pick cancelled")
     end
 end
 
 local function HandleGetWindow(args)
-    SetWebResult("HandleGetWindow called with args: " .. tostring(args) .. ", guid: " .. tostring(args and args.guid))
-    if not args or not args.guid then
+    if not args or not args.guid or args.guid == "" then
         SetWebResult("No window GUID provided")
         return
     end
@@ -86,8 +71,12 @@ local function HandleSaveWindow(args)
     args.mirrored = args.mirrored or false
     args.openingAngle = args.openingAngle or 45
 
-    if selectedWindow and selectedWindow ~= "" then
-        local ok, err = acapi.setWindow(selectedWindow, args)
+    -- Use the dropdown selection sent from JS, not the stale global,
+    -- so "Place New Window" really creates instead of updating the last window.
+    local target = (args.guid and args.guid ~= "") and args.guid or nil
+    if target then
+        selectedWindow = target
+        local ok, err = acapi.setWindow(target, args)
         if ok then
             SetWebResult("Window updated successfully!")
         else
@@ -100,12 +89,13 @@ local function HandleSaveWindow(args)
             SetWebResult("Window placed! GUID: " .. guid)
             -- Refresh window list
             local wallData = acapi.getWall(selectedWall)
-            if wallData and wallData.windows then
+            if wallData and wallData.openings and wallData.openings.windows then
                 local items = {}
-                for i, wGuid in ipairs(wallData.windows) do
+                for i, wGuid in ipairs(wallData.openings.windows) do
                     table.insert(items, "\"" .. wGuid .. "\"")
                 end
                 ExecuteJS("updateWindowList(" .. "[" .. table.concat(items, ",") .. "]" .. ", '" .. guid .. "');")
+                ExecuteJS("document.getElementById('saveBtn').textContent='Update Window';")
             end
         else
             SetWebResult("Error adding window: " .. tostring(err))

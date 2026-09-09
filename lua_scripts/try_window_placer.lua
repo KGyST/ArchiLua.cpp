@@ -95,7 +95,6 @@ local function HandleSaveWindow(args)
                     table.insert(items, "\"" .. wGuid .. "\"")
                 end
                 ExecuteJS("updateWindowList(" .. "[" .. table.concat(items, ",") .. "]" .. ", '" .. guid .. "');")
-                ExecuteJS("document.getElementById('saveBtn').textContent='Update Window';")
             end
         else
             SetWebResult("Error adding window: " .. tostring(err))
@@ -115,6 +114,7 @@ body{background:#1e1e1e;color:#ccc;font-family:Segoe UI,sans-serif;padding:16px;
 h2{margin:0 0 12px;font-size:16px;}
 button{background:#0e639c;color:#fff;border:none;padding:8px 16px;font-size:14px;cursor:pointer;border-radius:3px;margin-right:8px;}
 button:hover{background:#1177bb;}
+button:disabled{background:#555;color:#999;cursor:default;}
 #wallInfo,#windowInfo{margin:8px 0;padding:6px 8px;background:#2d2d2d;border-radius:3px;font-size:12px;word-break:break-all;}
 #result{margin-top:12px;padding:8px;background:#2d2d2d;border-radius:3px;font-size:13px;}
 label{display:inline-block;width:90px;font-size:12px;}
@@ -134,25 +134,25 @@ select{margin:4px 0;max-width:180px;}
   </select>
 </div>
 <hr>
-<div class='row'><label>Position (m):</label><input id='objLoc' type='number' value='2.0' step='0.1'></div>
-<div class='row'><label>Height (m):</label><input id='height' type='number' value='1.5' step='0.1'></div>
-<div class='row'><label>Width (m):</label><input id='width' type='number' value='1.0' step='0.1'></div>
-<div class='row'><label>Sill (m):</label><input id='sillHeight' type='number' value='0.9' step='0.1'></div>
+<div class='row'><label>Position (m):</label><input id='objLoc' type='number' value='2.0' step='0.1' oninput='scheduleAutoSave()'></div>
+<div class='row'><label>Height (m):</label><input id='height' type='number' value='1.5' step='0.1' oninput='scheduleAutoSave()'></div>
+<div class='row'><label>Width (m):</label><input id='width' type='number' value='1.0' step='0.1' oninput='scheduleAutoSave()'></div>
+<div class='row'><label>Sill (m):</label><input id='sillHeight' type='number' value='0.9' step='0.1' oninput='scheduleAutoSave()'></div>
 <div class='row'><label>RefSide:</label>
-  <select id='refSide'>
+  <select id='refSide' onchange='autoSave()'>
     <option value='inside'>Inside</option>
     <option value='outside'>Outside</option>
   </select>
 </div>
 <div class='row'><label>oSide:</label>
-  <select id='oSide'>
+  <select id='oSide' onchange='autoSave()'>
     <option value='inside'>Inside</option>
     <option value='outside'>Outside</option>
   </select>
 </div>
-<div class='row'><label>Mirrored:</label><input id='mirrored' type='checkbox'></div>
-<div class='row'><label>Opening &deg;:</label><input id='openingAngle' type='number' value='45' min='0' max='180' step='5'></div>
-<div style='margin-top:8px;'><button id='saveBtn' onclick='saveWindow()'>Place New Window</button></div>
+<div class='row'><label>Mirrored:</label><input id='mirrored' type='checkbox' onchange='autoSave()'></div>
+<div class='row'><label>Opening &deg;:</label><input id='openingAngle' type='number' value='45' min='0' max='180' step='5' oninput='scheduleAutoSave()'></div>
+<div style='margin-top:8px;'><button id='saveBtn' onclick='saveWindow()'>Place Window</button></div>
 <div id='result'>Select a wall, set parameters, then place or modify.</div>
 <script>
 function pickWall(){
@@ -162,6 +162,16 @@ function pickWall(){
 function onWallPicked(wallGuid, windows){
     document.getElementById('wallInfo').textContent='Wall: ' + wallGuid;
     updateWindowList(windows, '');
+}
+function setMode(mode){
+    var btn = document.getElementById('saveBtn');
+    if(mode === 'edit'){
+        btn.textContent = 'Auto-update on';
+        btn.disabled = true;
+    } else {
+        btn.textContent = 'Place Window';
+        btn.disabled = false;
+    }
 }
 function updateWindowList(windows, selectedGuid){
     var sel = document.getElementById('windowSelect');
@@ -173,14 +183,25 @@ function updateWindowList(windows, selectedGuid){
         if(windows[i] === selectedGuid) opt.selected = true;
         sel.appendChild(opt);
     }
+    setMode(selectedGuid ? 'edit' : 'new');
 }
 function selectWindow(guid){
     if(!guid){
-        document.getElementById('saveBtn').textContent = 'Place New Window';
+        setMode('new');
         return;
     }
-    document.getElementById('saveBtn').textContent = 'Update Window';
+    setMode('edit');
     archilua.CallLua('onGetWindow', JSON.stringify({guid: guid}));
+}
+var autoSaveTimer = null;
+function scheduleAutoSave(){
+    if(!document.getElementById('windowSelect').value) return;
+    if(autoSaveTimer) clearTimeout(autoSaveTimer);
+    autoSaveTimer = setTimeout(function(){ autoSaveTimer = null; autoSave(); }, 700);
+}
+function autoSave(){
+    if(!document.getElementById('windowSelect').value) return;
+    saveWindow();
 }
 function populateWindow(data){
     var f = function(id){ return document.getElementById(id); };

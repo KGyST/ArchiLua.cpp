@@ -9,6 +9,23 @@ local function HandlePickWall()
         selectedWall = guid
         selectedWindow = nil
         local wallData = acapi.getWall(guid)
+        -- Debug: show raw wallData
+        local debugStr = "wallData: "
+        if wallData then
+            debugStr = debugStr .. "exists, windows="
+            if wallData.windows then
+                debugStr = debugStr .. "table (len=" .. #wallData.windows .. ")"
+                for i, w in ipairs(wallData.windows) do
+                    debugStr = debugStr .. " [" .. i .. "]=" .. tostring(w)
+                end
+            else
+                debugStr = debugStr .. "nil"
+            end
+        else
+            debugStr = debugStr .. "nil"
+        end
+        SetWebResult(debugStr)
+
         local windowsJson = "[]"
         if wallData and wallData.windows then
             local items = {}
@@ -18,13 +35,13 @@ local function HandlePickWall()
             windowsJson = "[" .. table.concat(items, ",") .. "]"
         end
         ExecuteJS("onWallPicked('" .. guid .."', " .. windowsJson .. ");")
-        SetWebResult("Selected wall: " .. guid)
     else
         SetWebResult("Pick cancelled")
     end
 end
 
 local function HandleGetWindow(args)
+    SetWebResult("HandleGetWindow called with args: " .. tostring(args) .. ", guid: " .. tostring(args and args.guid))
     if not args or not args.guid then
         SetWebResult("No window GUID provided")
         return
@@ -32,7 +49,6 @@ local function HandleGetWindow(args)
     selectedWindow = args.guid
     local winData = acapi.getWindow(args.guid)
     if winData then
-        -- Send data to JS to populate form fields
         local json = string.format(
             '{"objLoc":%f,"height":%f,"width":%f,"sillHeight":%f,"refSide":"%s","oSide":"%s","mirrored":%s,"openingAngle":%f}',
             winData.objLoc or 0,
@@ -47,7 +63,7 @@ local function HandleGetWindow(args)
         ExecuteJS("populateWindow(" .. json .. ");")
         SetWebResult("Loaded window: " .. args.guid)
     else
-        SetWebResult("Failed to get window data")
+        SetWebResult("Failed to get window data for: " .. args.guid)
     end
 end
 

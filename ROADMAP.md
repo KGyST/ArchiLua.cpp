@@ -75,9 +75,9 @@
   C++ `DispatchUIEvent` → Lua callback →
   C++ `ClickAnElem` → result to Lua →
   `SetWebResult()` → `ExecuteJS` → HTML DOM updated.
-- [ ] **Window Placing Test Script:** Place a window into the picked wall via `acapi.addWindow` from the Lua callback.
-  - Add more UI controls (numeric inputs, dropdowns, slider) and corresponding EDT events.
-	- The GUI should have a Button to add a windows, entries for Window X and Y (Sill) positions and Width and Height. When Button is pressed, a new Window is added having given parameters.
+- [x] **Window Placing Test Script:** Place a window into the picked wall via `acapi.addWindow` from the Lua callback (`lua_scripts/try_window_placer.lua`).
+  - Added UI controls (numeric inputs, dropdowns, angles) and corresponding EDT events (`onPlaceWindow`).
+  - GUI has a button to add a window with parameters (position, height, width, sill, refSide, oSide, mirrored, opening angle).
 - [ ] **Window Modifier:** The Window should follow UI changes (back and forth, if possible) 
 	- The Window should be somehow selected (by picking or if the wall is selected, a list of windows should be displayed each with a selector button) 
 	- If the window is seleced, its properties (Width, Height etc) in the UI Entries should be displayed correctly.

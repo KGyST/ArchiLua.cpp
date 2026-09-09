@@ -8,7 +8,7 @@ local function HandlePickWall()
     if guid then
         selectedWall = guid
         selectedWindow = nil
-        local wallData = acapi.getwall(guid)
+        local wallData = acapi.getWall(guid)
         local windowsJson = "[]"
         if wallData and wallData.windows then
             local items = {}
@@ -83,7 +83,7 @@ local function HandleSaveWindow(args)
             selectedWindow = guid
             SetWebResult("Window placed! GUID: " .. guid)
             -- Refresh window list
-            local wallData = acapi.getwall(selectedWall)
+            local wallData = acapi.getWall(selectedWall)
             if wallData and wallData.windows then
                 local items = {}
                 for i, wGuid in ipairs(wallData.windows) do

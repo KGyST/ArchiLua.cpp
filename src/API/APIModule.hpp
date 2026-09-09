@@ -1222,6 +1222,188 @@ static int AddWindow(lua_State* L)
     return 1;
 }
 
+static int GetWindow(lua_State* L)
+{
+    const char* guidStr = lua_tostring(L, 1);
+    if (!guidStr) {
+        lua_pushnil(L);
+        lua_pushstring(L, "expected a window GUID");
+        return 2;
+    }
+
+    API_Guid guid = APIGuidFromString(guidStr);
+    API_Element elem;
+    BNZeroMemory(&elem, sizeof(elem));
+    elem.header.guid = guid;
+    GSErrCode err = ACAPI_Element_Get(&elem);
+    if (err != NoError || elem.header.type.typeID != API_WindowID) {
+        lua_pushnil(L);
+        lua_pushstring(L, "window not found");
+        return 2;
+    }
+
+    API_Element wallElem;
+    BNZeroMemory(&wallElem, sizeof(wallElem));
+    wallElem.header.guid = elem.window.owner;
+    bool wallFlipped = false;
+    if (ACAPI_Element_Get(&wallElem) == NoError && wallElem.header.type.typeID == API_WallID) {
+        wallFlipped = wallElem.wall.flipped;
+    }
+
+    API_ElementMemo memo;
+    BNZeroMemory(&memo, sizeof(memo));
+    double openingAngle = 45.0;
+    if (ACAPI_Element_GetMemo(guid, &memo, APIMemoMask_AddPars) == NoError && memo.params != nullptr) {
+        UInt32 n = (UInt32)(BMGetHandleSize((GSHandle)memo.params) / sizeof(API_AddParType));
+        for (UInt32 i = 0; i < n; ++i) {
+            API_AddParType& par = (*memo.params)[i];
+            if (GS::UniString(par.name) == "gs_open_2D" && par.typeMod == API_ParSimple) {
+                openingAngle = par.value.real * 180.0 / 3.14159265358979323846;
+                break;
+            }
+        }
+        ACAPI_DisposeElemMemoHdls(&memo);
+    }
+
+    lua_createtable(L, 0, 10);
+    PushGuid(L, elem.header.guid);
+    lua_setfield(L, -2, "guid");
+    PushGuid(L, elem.window.owner);
+    lua_setfield(L, -2, "wallGuid");
+    lua_pushnumber(L, elem.window.objLoc);
+    lua_setfield(L, -2, "objLoc");
+    lua_pushnumber(L, elem.window.openingBase.height);
+    lua_setfield(L, -2, "height");
+    lua_pushnumber(L, elem.window.openingBase.width);
+    lua_setfield(L, -2, "width");
+    lua_pushnumber(L, elem.window.lower);
+    lua_setfield(L, -2, "sillHeight");
+
+    bool refOutside = elem.window.openingBase.refSide;
+    if (wallFlipped) refOutside = !refOutside;
+    lua_pushstring(L, refOutside ? "outside" : "inside");
+    lua_setfield(L, -2, "refSide");
+
+    bool oOutside = elem.window.openingBase.oSide;
+    if (wallFlipped) oOutside = !oOutside;
+    lua_pushstring(L, oOutside ? "outside" : "inside");
+    lua_setfield(L, -2, "oSide");
+
+    lua_pushboolean(L, elem.window.openingBase.reflected);
+    lua_setfield(L, -2, "mirrored");
+    lua_pushnumber(L, openingAngle);
+    lua_setfield(L, -2, "openingAngle");
+
+    return 1;
+}
+
+static int SetWindow(lua_State* L)
+{
+    const char* guidStr = lua_tostring(L, 1);
+    if (!guidStr || !lua_istable(L, 2)) {
+        lua_pushnil(L);
+        lua_pushstring(L, "expected a window GUID and params table");
+        return 2;
+    }
+
+    API_Guid guid = APIGuidFromString(guidStr);
+    API_Element elem;
+    BNZeroMemory(&elem, sizeof(elem));
+    elem.header.guid = guid;
+    GSErrCode err = ACAPI_Element_Get(&elem);
+    if (err != NoError || elem.header.type.typeID != API_WindowID) {
+        lua_pushnil(L);
+        lua_pushstring(L, "window not found");
+        return 2;
+    }
+
+    API_Element wallElem;
+    BNZeroMemory(&wallElem, sizeof(wallElem));
+    wallElem.header.guid = elem.window.owner;
+    bool wallFlipped = false;
+    if (ACAPI_Element_Get(&wallElem) == NoError && wallElem.header.type.typeID == API_WallID) {
+        wallFlipped = wallElem.wall.flipped;
+    }
+
+    lua_getfield(L, 2, "objLoc");
+    if (lua_isnumber(L, -1)) elem.window.objLoc = lua_tonumber(L, -1);
+    lua_pop(L, 1);
+
+    lua_getfield(L, 2, "height");
+    if (lua_isnumber(L, -1)) elem.window.openingBase.height = lua_tonumber(L, -1);
+    lua_pop(L, 1);
+
+    lua_getfield(L, 2, "width");
+    if (lua_isnumber(L, -1)) elem.window.openingBase.width = lua_tonumber(L, -1);
+    lua_pop(L, 1);
+
+    lua_getfield(L, 2, "sillHeight");
+    if (lua_isnumber(L, -1)) elem.window.lower = lua_tonumber(L, -1);
+    lua_pop(L, 1);
+
+    lua_getfield(L, 2, "mirrored");
+    if (lua_isboolean(L, -1)) elem.window.openingBase.reflected = lua_toboolean(L, -1);
+    lua_pop(L, 1);
+
+    auto readSideFlag = [&](const char* key, bool& targetField) {
+        lua_getfield(L, 2, key);
+        if (lua_isstring(L, -1)) {
+            const char* s = lua_tostring(L, -1);
+            bool outside = (GS::UniString(s).Compare("outside") == 0);
+            if (wallFlipped) outside = !outside;
+            targetField = outside;
+        } else if (lua_isboolean(L, -1)) {
+            bool outside = lua_toboolean(L, -1);
+            if (wallFlipped) outside = !outside;
+            targetField = outside;
+        }
+        lua_pop(L, 1);
+    };
+    readSideFlag("refSide", elem.window.openingBase.refSide);
+    readSideFlag("oSide", elem.window.openingBase.oSide);
+
+    double openingAngle = -1.0;
+    lua_getfield(L, 2, "openingAngle");
+    if (lua_isnumber(L, -1)) openingAngle = lua_tonumber(L, -1);
+    lua_pop(L, 1);
+
+    API_Element mask;
+    ACAPI_ELEMENT_MASK_CLEAR(mask);
+    ACAPI_ELEMENT_MASK_SET(mask, API_WindowType, objLoc);
+    ACAPI_ELEMENT_MASK_SET(mask, API_WindowType, openingBase.height);
+    ACAPI_ELEMENT_MASK_SET(mask, API_WindowType, openingBase.width);
+    ACAPI_ELEMENT_MASK_SET(mask, API_WindowType, lower);
+    ACAPI_ELEMENT_MASK_SET(mask, API_WindowType, openingBase.reflected);
+    ACAPI_ELEMENT_MASK_SET(mask, API_WindowType, openingBase.refSide);
+    ACAPI_ELEMENT_MASK_SET(mask, API_WindowType, openingBase.oSide);
+
+    API_ElementMemo memo;
+    BNZeroMemory(&memo, sizeof(memo));
+    if (openingAngle >= 0.0) {
+        if (ACAPI_Element_GetMemo(guid, &memo, APIMemoMask_AddPars) == NoError && memo.params != nullptr) {
+            SetMemoGDLParam(memo, "ac_OpeningSide", true, elem.window.openingBase.oSide ? "B" : "A", 0.0);
+            SetMemoGDLParam(memo, "gs_open_2D", false, nullptr, openingAngle);
+        }
+    }
+
+    err = ACAPI_CallUndoableCommand("Modify Window", [&]() -> GSErrCode {
+        return ACAPI_Element_Change(&elem, &mask, memo.params != nullptr ? &memo : nullptr, APIMemoMask_AddPars, true);
+    });
+
+    if (memo.params != nullptr) {
+        ACAPI_DisposeElemMemoHdls(&memo);
+    }
+
+    if (err != NoError) {
+        lua_pushnil(L);
+        lua_pushfstring(L, "change window failed: err=%d", (int)err);
+        return 2;
+    }
+
+    lua_pushboolean(L, true);
+    return 1;
+}
+
 static int AddDoor(lua_State* L)
 {
     const char* wallGuidStr = lua_tostring(L, 1);
@@ -1648,6 +1830,12 @@ inline void Register(lua_State* L)
 
     lua_pushcfunction(L, AddWindow);
     lua_setfield(L, -2, "addWindow");
+
+    lua_pushcfunction(L, GetWindow);
+    lua_setfield(L, -2, "getWindow");
+
+    lua_pushcfunction(L, SetWindow);
+    lua_setfield(L, -2, "setWindow");
 
     lua_pushcfunction(L, AddDoor);
     lua_setfield(L, -2, "addDoor");

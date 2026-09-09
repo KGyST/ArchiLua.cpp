@@ -78,13 +78,10 @@
 - [x] **Window Placing Test Script:** Place a window into the picked wall via `acapi.addWindow` from the Lua callback (`lua_scripts/try_window_placer.lua`).
   - Added UI controls (numeric inputs, dropdowns, angles) and corresponding EDT events (`onPlaceWindow`).
   - GUI has a button to add a window with parameters (position, height, width, sill, refSide, oSide, mirrored, opening angle).
-- [ ] **Window Modifier:** The Window should follow UI changes (back and forth, if possible) 
-	- The Window should be somehow selected (by picking or if the wall is selected, a list of windows should be displayed each with a selector button) 
-	- If the window is seleced, its properties (Width, Height etc) in the UI Entries should be displayed correctly.
-	- If UI entries are changed, window should follow the changes
-	- Only evaluate this:
-		- If poessible, if the window is changed another way (on ArchiCAD GUI etc) the UI Entries should follow. How complicated  is this (event handlers)
-		- [x] **EVALUATION DONE (2026-08-07):** Element modification events are a first-class AC27 API feature. See **Phase 3.7 → Event Listeners** for the confirmed design. UI-follows-window is feasible via `APINotifyElement_Change`; effort is low once the observer layer (Phase 3.7) exists.
+- [x] **Window Modifier:** The Window follows UI changes back and forth.
+  - Windows on the picked wall are listed in a dropdown selection.
+  - Selecting a window loads its properties (`objLoc`, width, height, sill, refSide, oSide, mirrored, opening angle) into the UI entries via `acapi.getWindow()`.
+  - Changing UI entries and clicking "Update Window" updates the window via `acapi.setWindow()`.
 - [ ] **Windows Registry Handling:**
   - Persist GUI input field values into Windows Registry under `HKCU\Software\Samu\ArchiLua\try_web_gui`.
   - Create Win32 Registry C++ helper wrappers based on `CommonCppLibs` and expose them to Lua (`acapi.regRead`, `acapi.regWrite`).

@@ -9,6 +9,8 @@ extern "C" {
 #include "ACAPinc.h"
 #include "../ArchiLua.hpp"
 
+#include <cmath>
+
 namespace ArchiLua {
 namespace APIModule {
 
@@ -1131,8 +1133,8 @@ static int AddWindow(lua_State* L)
     double openingAngle = lua_isnumber(L, -1) ? lua_tonumber(L, -1) : 45.0;
     lua_pop(L, 1);
 
-    // Wall sides: refSide ("inside"/"outside") and oSide ("inside"/"outside"), each
-    // resolved against the wall's flipped state. They are distinct controls.
+    // Wall sides: refSide/oSide are plain mirror flags ("outside" = true).
+    // They map 1:1 to the stored booleans; no wall-flip compensation.
     auto readSideFlag = [&](const char* key) -> bool {
         lua_getfield(L, 2, key);
         bool outside = false;
@@ -1143,8 +1145,6 @@ static int AddWindow(lua_State* L)
             outside = (lua_tointeger(L, -1) != 0);
         }
         lua_pop(L, 1);
-        if (wallElem.wall.flipped)
-            outside = !outside;
         return outside;
     };
     bool refSideOutside = readSideFlag("refSide");
@@ -1242,14 +1242,6 @@ static int GetWindow(lua_State* L)
         return 2;
     }
 
-    API_Element wallElem;
-    BNZeroMemory(&wallElem, sizeof(wallElem));
-    wallElem.header.guid = elem.window.owner;
-    bool wallFlipped = false;
-    if (ACAPI_Element_Get(&wallElem) == NoError && wallElem.header.type.typeID == API_WallID) {
-        wallFlipped = wallElem.wall.flipped;
-    }
-
     API_ElementMemo memo;
     BNZeroMemory(&memo, sizeof(memo));
     double openingAngle = 45.0;
@@ -1279,14 +1271,10 @@ static int GetWindow(lua_State* L)
     lua_pushnumber(L, elem.window.lower);
     lua_setfield(L, -2, "sillHeight");
 
-    bool refOutside = elem.window.openingBase.refSide;
-    if (wallFlipped) refOutside = !refOutside;
-    lua_pushstring(L, refOutside ? "outside" : "inside");
+    lua_pushstring(L, elem.window.openingBase.refSide ? "outside" : "inside");
     lua_setfield(L, -2, "refSide");
 
-    bool oOutside = elem.window.openingBase.oSide;
-    if (wallFlipped) oOutside = !oOutside;
-    lua_pushstring(L, oOutside ? "outside" : "inside");
+    lua_pushstring(L, elem.window.openingBase.oSide ? "outside" : "inside");
     lua_setfield(L, -2, "oSide");
 
     lua_pushboolean(L, elem.window.openingBase.reflected);
@@ -1317,13 +1305,15 @@ static int SetWindow(lua_State* L)
         return 2;
     }
 
-    API_Element wallElem;
-    BNZeroMemory(&wallElem, sizeof(wallElem));
-    wallElem.header.guid = elem.window.owner;
-    bool wallFlipped = false;
-    if (ACAPI_Element_Get(&wallElem) == NoError && wallElem.header.type.typeID == API_WallID) {
-        wallFlipped = wallElem.wall.flipped;
-    }
+    // Snapshot current state: only actually-changed fields are written, so an
+    // update with unchanged values is a true no-op (never mirrors the window).
+    const double oldObjLoc = elem.window.objLoc;
+    const double oldHeight = elem.window.openingBase.height;
+    const double oldWidth = elem.window.openingBase.width;
+    const double oldLower = elem.window.lower;
+    const bool oldReflected = elem.window.openingBase.reflected;
+    const bool oldRefSide = elem.window.openingBase.refSide;
+    const bool oldOSide = elem.window.openingBase.oSide;
 
     lua_getfield(L, 2, "objLoc");
     if (lua_isnumber(L, -1)) elem.window.objLoc = lua_tonumber(L, -1);
@@ -1349,45 +1339,89 @@ static int SetWindow(lua_State* L)
         lua_getfield(L, 2, key);
         if (lua_isstring(L, -1)) {
             const char* s = lua_tostring(L, -1);
-            bool outside = (GS::UniString(s).Compare("outside") == 0);
-            if (wallFlipped) outside = !outside;
-            targetField = outside;
+            targetField = (GS::UniString(s).Compare("outside") == 0);
         } else if (lua_isboolean(L, -1)) {
-            bool outside = lua_toboolean(L, -1);
-            if (wallFlipped) outside = !outside;
-            targetField = outside;
+            targetField = lua_toboolean(L, -1);
         }
         lua_pop(L, 1);
     };
     readSideFlag("refSide", elem.window.openingBase.refSide);
     readSideFlag("oSide", elem.window.openingBase.oSide);
 
+    bool angleKeyPresent = false;
     double openingAngle = -1.0;
     lua_getfield(L, 2, "openingAngle");
-    if (lua_isnumber(L, -1)) openingAngle = lua_tonumber(L, -1);
+    if (lua_isnumber(L, -1)) {
+        angleKeyPresent = true;
+        openingAngle = lua_tonumber(L, -1);
+    }
     lua_pop(L, 1);
 
     API_Element mask;
     ACAPI_ELEMENT_MASK_CLEAR(mask);
-    ACAPI_ELEMENT_MASK_SET(mask, API_WindowType, objLoc);
-    ACAPI_ELEMENT_MASK_SET(mask, API_WindowType, openingBase.height);
-    ACAPI_ELEMENT_MASK_SET(mask, API_WindowType, openingBase.width);
-    ACAPI_ELEMENT_MASK_SET(mask, API_WindowType, lower);
-    ACAPI_ELEMENT_MASK_SET(mask, API_WindowType, openingBase.reflected);
-    ACAPI_ELEMENT_MASK_SET(mask, API_WindowType, openingBase.refSide);
-    ACAPI_ELEMENT_MASK_SET(mask, API_WindowType, openingBase.oSide);
+    if (elem.window.objLoc != oldObjLoc)
+        ACAPI_ELEMENT_MASK_SET(mask, API_WindowType, objLoc);
+    if (elem.window.openingBase.height != oldHeight)
+        ACAPI_ELEMENT_MASK_SET(mask, API_WindowType, openingBase.height);
+    if (elem.window.openingBase.width != oldWidth)
+        ACAPI_ELEMENT_MASK_SET(mask, API_WindowType, openingBase.width);
+    if (elem.window.lower != oldLower)
+        ACAPI_ELEMENT_MASK_SET(mask, API_WindowType, lower);
+    if (elem.window.openingBase.reflected != oldReflected)
+        ACAPI_ELEMENT_MASK_SET(mask, API_WindowType, openingBase.reflected);
+    if (elem.window.openingBase.refSide != oldRefSide)
+        ACAPI_ELEMENT_MASK_SET(mask, API_WindowType, openingBase.refSide);
+    const bool oSideChanged = (elem.window.openingBase.oSide != oldOSide);
+    if (oSideChanged)
+        ACAPI_ELEMENT_MASK_SET(mask, API_WindowType, openingBase.oSide);
 
+    // GDL params are rewritten only when their logical value actually changed,
+    // otherwise a gratuitous ac_OpeningSide rewrite would mirror the window.
     API_ElementMemo memo;
     BNZeroMemory(&memo, sizeof(memo));
-    if (openingAngle >= 0.0) {
-        if (ACAPI_Element_GetMemo(guid, &memo, APIMemoMask_AddPars) == NoError && memo.params != nullptr) {
-            SetMemoGDLParam(memo, "ac_OpeningSide", true, elem.window.openingBase.oSide ? "B" : "A", 0.0);
-            SetMemoGDLParam(memo, "gs_open_2D", false, nullptr, openingAngle);
+    bool memoModified = false;
+    if (ACAPI_Element_GetMemo(guid, &memo, APIMemoMask_AddPars) == NoError && memo.params != nullptr) {
+        if (oSideChanged) {
+            if (SetMemoGDLParam(memo, "ac_OpeningSide", true, elem.window.openingBase.oSide ? "B" : "A", 0.0))
+                memoModified = true;
+        }
+        if (angleKeyPresent) {
+            double currentAngle = 0.0;
+            bool haveAngle = false;
+            UInt32 n = (UInt32)(BMGetHandleSize((GSHandle)memo.params) / sizeof(API_AddParType));
+            for (UInt32 i = 0; i < n; ++i) {
+                API_AddParType& par = (*memo.params)[i];
+                if (GS::UniString(par.name) == "gs_open_2D" && par.typeMod == API_ParSimple) {
+                    currentAngle = par.value.real * 180.0 / 3.14159265358979323846;
+                    haveAngle = true;
+                    break;
+                }
+            }
+            if (!haveAngle || fabs(currentAngle - openingAngle) > 1e-9) {
+                if (SetMemoGDLParam(memo, "gs_open_2D", false, nullptr, openingAngle))
+                    memoModified = true;
+            }
         }
     }
 
+    const bool elemChanged =
+        elem.window.objLoc != oldObjLoc ||
+        elem.window.openingBase.height != oldHeight ||
+        elem.window.openingBase.width != oldWidth ||
+        elem.window.lower != oldLower ||
+        elem.window.openingBase.reflected != oldReflected ||
+        elem.window.openingBase.refSide != oldRefSide ||
+        oSideChanged;
+
+    if (!elemChanged && !memoModified) {
+        if (memo.params != nullptr)
+            ACAPI_DisposeElemMemoHdls(&memo);
+        lua_pushboolean(L, true);
+        return 1;
+    }
+
     err = ACAPI_CallUndoableCommand("Modify Window", [&]() -> GSErrCode {
-        return ACAPI_Element_Change(&elem, &mask, memo.params != nullptr ? &memo : nullptr, APIMemoMask_AddPars, true);
+        return ACAPI_Element_Change(&elem, &mask, memoModified ? &memo : nullptr, memoModified ? APIMemoMask_AddPars : 0, true);
     });
 
     if (memo.params != nullptr) {
@@ -1448,8 +1482,8 @@ static int AddDoor(lua_State* L)
     bool mirrored = lua_toboolean(L, -1);
     lua_pop(L, 1);
 
-    // Wall sides: refSide ("inside"/"outside") and oSide ("inside"/"outside"), each
-    // resolved against the wall's flipped state. They are distinct controls.
+    // Wall sides: refSide/oSide are plain mirror flags ("outside" = true).
+    // They map 1:1 to the stored booleans; no wall-flip compensation.
     auto readSideFlag = [&](const char* key) -> bool {
         lua_getfield(L, 2, key);
         bool outside = false;
@@ -1460,8 +1494,6 @@ static int AddDoor(lua_State* L)
             outside = (lua_tointeger(L, -1) != 0);
         }
         lua_pop(L, 1);
-        if (wallElem.wall.flipped)
-            outside = !outside;
         return outside;
     };
     bool refSideOutside = readSideFlag("refSide");

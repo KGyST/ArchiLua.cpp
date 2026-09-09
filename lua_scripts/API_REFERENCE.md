@@ -43,7 +43,11 @@ Without begin/end, each write call creates its own undo step.
 
 `local guid = acapi.addWall({ begC={x,y}, endC={x,y}, height, thickness, layer, floor })` — create a new straight wall. `floor` defaults to 1; also accepts `storey` as alias. Pass `poly` table (array of `{x,y}`) instead of `begC`/`endC` for a polygonal wall.
 
-`local guid = acapi.addWindow(wallGuid, { objLoc, height, width, sillHeight, refSide, oSide, mirrored })` — place a window in a straight wall. `refSide` and `oSide` (each `"inside"`/`"outside"`, resolved against the wall's flip) and `mirrored` (bool) control orientation.
+`local guid = acapi.addWindow(wallGuid, { objLoc, height, width, sillHeight, refSide, oSide, mirrored })` — place a window in a straight wall. `refSide` and `oSide` (each `"inside"`/`"outside"`, mapping 1:1 to the stored mirror flags) and `mirrored` (bool) control orientation.
+
+`local win = acapi.getWindow(guid)` — window table: `guid`, `wallGuid`, `objLoc`, `height`, `width`, `sillHeight`, `refSide`/`oSide` (`"inside"`/`"outside"`), `mirrored`, `openingAngle`.
+
+`acapi.setWindow(guid, { ... })` — update window fields (same keys as `getWindow`). Only actually-changed fields are written, so saving unchanged values is a no-op and never mirrors the window.
 
 `local guid = acapi.addDoor(wallGuid, { objLoc, height, width, refSide, oSide, mirrored })` — place a door in a straight wall. Same params as `addWindow` (no `sillHeight`).
 

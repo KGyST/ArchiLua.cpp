@@ -76,7 +76,8 @@
   - Do NOT implement watched-lists, UI observer panels, or complex C++ classes.
 
 - [ ] **Divider Demo (`try_dividers.lua`):**
-  - Place 10 divider ticks (narrow windows) on a picked wall, watch it, recompute proportional `objLoc` on wall `edit`/`change` (pure moves are no-ops: owned windows travel along).
+  - Place 10 standalone divider points (library objects on the wall centerline) on a picked wall, watch it, recompute XY from `begC`/`endC` and move them via `acapi.set(pos)` on wall `edit`/`change`. Marker part name is user-configurable (persisted in registry); points removable via `acapi.delete`.
+  - Needs: `acapi.set` `pos` support for objects + `acapi.delete` (done); `ShowWebDialog` replaces the previous script's GUI instead of showing stale content (done).
 
 - [ ] **Observer Polish / Finalize (deferred):**
   - Decide `observerLog` fate (keep as diagnostic or remove); verify reload-persistence; revisit Edit-during-drag semantics if ArchiCAD behavior differs per operation.

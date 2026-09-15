@@ -96,6 +96,9 @@ static GSErrCode __ACENV_CALL MenuCommandHandler(const API_MenuParams* params)
     switch (params->menuItemRef.itemIndex) {
     case 1:
         {
+            // Close any existing dialog first (guarded PanelClosed won't clobber the new pointer)
+            if (GetBridge().GetDialog() != nullptr)
+                GetBridge().GetDialog()->SendCloseRequest();
             auto* dlg = new LuaScriptDialog();
             GetBridge().SetDialog(dlg);
             dlg->Show();

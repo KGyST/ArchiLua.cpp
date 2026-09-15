@@ -31,7 +31,9 @@ Without begin/end, each write call creates its own undo step.
 
 `acapi.setWall(guid, { ... })` — wall fields: `height`, `thickness`, `layer`, `begC{x,y}`, `endC{x,y}`.
 
-`acapi.set(guid, { ... })` — generic: `layer` (common) + type-specific fields (TBD).
+`acapi.set(guid, { ... })` — generic: `layer` (common) + `pos = {x, y}` for objects.
+
+`acapi.delete(guid)` — delete an element (single undo step). Returns `true` on success.
 
 `acapi.setParams(guid, { name = value, ... })` — set GDL parameters by name.
 

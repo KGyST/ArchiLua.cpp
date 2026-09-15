@@ -76,16 +76,23 @@ static int L_SetWebResult(lua_State* L)
 static int L_ShowWebDialog(lua_State* L)
 {
     auto& bridge = GetBridge();
+    bool hasHtml = (lua_gettop(L) >= 1 && lua_isstring(L, 1));
     auto* existing = bridge.GetDialog();
     if (existing) {
         auto* webDlg = dynamic_cast<LuaWebDialog*>(existing);
         if (webDlg) {
+            // Same dialog: a new script replaces the old GUI in place.
+            if (hasHtml)
+                webDlg->SetHTML(GS::UniString(lua_tostring(L, 1)));
             webDlg->Show();
             return 0;
         }
+        // Different dialog type (e.g. file picker): close it; its guarded
+        // PanelClosed will not clobber the new dialog pointer set below.
+        existing->SendCloseRequest();
     }
     LuaWebDialog* dlg;
-    if (lua_gettop(L) >= 1 && lua_isstring(L, 1)) {
+    if (hasHtml) {
         dlg = new LuaWebDialog(GS::UniString(lua_tostring(L, 1)));
     } else {
         dlg = new LuaWebDialog();
@@ -427,9 +434,16 @@ void LuaWebDialog::PanelCloseRequested(const DG::PanelCloseRequestEvent& ev, boo
     *accepted = true;
 }
 
+void LuaWebDialog::SetHTML(const GS::UniString& html)
+{
+    browser.LoadHTML(html);
+    RegisterJSObject(browser, this);
+}
+
 void LuaWebDialog::PanelClosed(const DG::PanelCloseEvent& ev)
 {
-    GetBridge().SetDialog(nullptr);
+    if (GetBridge().GetDialog() == this)
+        GetBridge().SetDialog(nullptr);
     delete this;
 }
 

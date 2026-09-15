@@ -523,6 +523,21 @@ static int SetElement(lua_State* L)
         if (strcmp(key, "layer") == 0 && lua_isinteger(L, -1)) {
             elem.header.layer = ACAPI_CreateAttributeIndex((Int32)lua_tointeger(L, -1));
             ACAPI_ELEMENT_MASK_SET(mask, API_Elem_Head, layer);
+        } else if (strcmp(key, "pos") == 0 && lua_istable(L, -1)) {
+            if (elem.header.type.typeID != API_ObjectID) {
+                lua_pop(L, 1);
+                lua_pushnil(L);
+                lua_pushstring(L, "set: pos is only supported for objects");
+                return 2;
+            }
+            lua_getfield(L, -1, "x");
+            lua_getfield(L, -2, "y");
+            if (lua_isnumber(L, -2) && lua_isnumber(L, -1)) {
+                elem.object.pos.x = lua_tonumber(L, -2);
+                elem.object.pos.y = lua_tonumber(L, -1);
+                ACAPI_ELEMENT_MASK_SET(mask, API_ObjectType, pos);
+            }
+            lua_pop(L, 2);
         }
 
         lua_pop(L, 1);
@@ -539,6 +554,32 @@ static int SetElement(lua_State* L)
             lua_pushfstring(L, "set failed: err=%d", (int)err);
             return 2;
         }
+    }
+
+    lua_pushboolean(L, true);
+    return 1;
+}
+
+static int DeleteElement(lua_State* L)
+{
+    const char* guidStr = lua_tostring(L, 1);
+    if (guidStr == nullptr) {
+        lua_pushboolean(L, false);
+        lua_pushstring(L, "delete: expected a GUID string");
+        return 2;
+    }
+
+    API_Guid guid = APIGuidFromString(guidStr);
+    GS::Array<API_Guid> guids;
+    guids.Push(guid);
+
+    GSErrCode err = ACAPI_CallUndoableCommand("Delete Element", [&]() -> GSErrCode {
+        return ACAPI_Element_Delete(guids);
+    });
+    if (err != NoError) {
+        lua_pushboolean(L, false);
+        lua_pushfstring(L, "delete failed: err=%d", (int)err);
+        return 2;
     }
 
     lua_pushboolean(L, true);
@@ -2430,6 +2471,9 @@ inline void Register(lua_State* L)
 
     lua_pushcfunction(L, SetElement);
     lua_setfield(L, -2, "set");
+
+    lua_pushcfunction(L, DeleteElement);
+    lua_setfield(L, -2, "delete");
 
     lua_pushcfunction(L, SetParams);
     lua_setfield(L, -2, "setParams");

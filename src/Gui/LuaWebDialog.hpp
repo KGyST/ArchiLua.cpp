@@ -24,6 +24,7 @@ private:
 
 public:
     void ExecuteJS(const GS::UniString& js) { browser.ExecuteJS(js); }
+    void SetHTML(const GS::UniString& html);
     GS::UniString DispatchUIEvent(const std::string& eventName, const std::string& argsJson = "");
     void SetPayload(const std::string& p) { m_payload = p; }
     const std::string& GetPayload() const { return m_payload; }

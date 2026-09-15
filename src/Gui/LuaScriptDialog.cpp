@@ -80,7 +80,8 @@ void LuaScriptDialog::PanelCloseRequested(const DG::PanelCloseRequestEvent& ev, 
 
 void LuaScriptDialog::PanelClosed(const DG::PanelCloseEvent& ev)
 {
-    GetBridge().SetDialog(nullptr);
+    if (GetBridge().GetDialog() == this)
+        GetBridge().SetDialog(nullptr);
     delete this;
 }
 

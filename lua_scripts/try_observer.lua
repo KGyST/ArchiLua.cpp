@@ -11,6 +11,7 @@ RegisterWebEvent("onPickWall", function()
     local guid = PickWall()
     if guid then
         local ok, err = acapi.watch(guid, "try_observer.lua\\onWallEvent", { note = "drag-me" })
+        acapi.observerLog(true) -- raw notifID sequence goes to the Report window
         if ok then
             ExecuteJS("document.getElementById('result').textContent='Watching: " .. guid .. " — drag the wall now.';")
             SetWebResult("Watching wall: " .. guid)

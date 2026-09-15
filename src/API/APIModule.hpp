@@ -2013,6 +2013,12 @@ static int& DispatchDepth()
     return d;
 }
 
+static bool& ObserverLogEnabled()
+{
+    static bool on = false;
+    return on;
+}
+
 inline void SetObserverContext(lua_State* L, LuaDebugger* dbg)
 {
     ObserverState() = L;
@@ -2282,7 +2288,15 @@ static void FlushPendingEdits()
 
 static GSErrCode __ACENV_CALL ObserverHandler(const API_NotifyElementType* et)
 {
-    if (et == nullptr || DispatchDepth() > 0)
+    if (et == nullptr)
+        return NoError;
+    if (ObserverLogEnabled()) {
+        GS::UniString guidU = APIGuidToString(et->elemHead.guid);
+        std::string msg = "observer: notif=" + std::to_string((int)et->notifID) +
+                          " guid=" + guidU.ToCStr().Get();
+        ACAPI_WriteReport(msg.c_str(), false);
+    }
+    if (DispatchDepth() > 0)
         return NoError; // nested notification from our own callback's DB writes
     if (et->notifID == APINotifyElement_EndEvents) {
         FlushPendingEdits(); // burst ended (incl. drag-cancel with no Change)
@@ -2322,6 +2336,7 @@ static int Watch(lua_State* L)
         return 2;
     }
     API_Guid guid = APIGuidFromString(guidStr);
+    ACAPI_Element_DetachObserver(guid); // start clean: re-watch must not fail as "already attached"
     GSErrCode err = ACAPI_Element_AttachObserver(guid, 0);
     if (err != NoError) {
         lua_pushboolean(L, false);
@@ -2365,6 +2380,13 @@ static int Unwatch(lua_State* L)
         PersistWatches();
     }
     PendingEdits().erase(guidStr);
+    lua_pushboolean(L, true);
+    return 1;
+}
+
+static int ObserverLog(lua_State* L)
+{
+    ObserverLogEnabled() = lua_toboolean(L, 1) != 0;
     lua_pushboolean(L, true);
     return 1;
 }
@@ -2447,6 +2469,9 @@ inline void Register(lua_State* L)
 
     lua_pushcfunction(L, Unwatch);
     lua_setfield(L, -2, "unwatch");
+
+    lua_pushcfunction(L, ObserverLog);
+    lua_setfield(L, -2, "observerLog");
 
     lua_pushcfunction(L, RegRead);
     lua_setfield(L, -2, "regRead");

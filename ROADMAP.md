@@ -50,24 +50,29 @@
   - Self-contained WinAPI implementation (two-step sized reads, every `LSTATUS` checked) instead of `CommonLibs` WinReg helpers: `GetRegString()` silently drops values > 255 chars and `GetOrCreateRegPath()` uses the `HKEY` unchecked.
   - `lua_scripts/try_window_placer.lua` persists all form fields on save and restores them on load (section `try_window_placer`).
 	
-## Phase 3.7: Minimalist Wall Observer (PoC Only)
-
+## Phase 3.7: Minimalist Observer (PoC Only)
 - [ ] **Minimal C++ API Binding:**
   - Expose two simple C++ functions to Lua:
-    - `acapi.watch(guid)` → calls `ACAPI_Element_AttachObserver(guid)`.
-    - `acapi.unwatch(guid)` → calls `ACAPI_Element_DetachObserver(guid)`.
+    - `acapi.watch(guid, func_url, kwargs)` → calls `ACAPI_Element_AttachObserver(guid)`.
+      - `func_url` is `"script.lua\\FunctionName"` (script part recorded for future multi-script support; currently the function name is resolved as a Lua global in the shared state).
+      - `kwargs` (Lua table) is held via registry ref for the session AND serialized to JSON into `ACAPI` Project Storage (ModulData): `{guid: {func_url, kwargs}}`, so watches survive project reload. Prune GUIDs that no longer exist on load.
+			E.g. `{"46358EF2-DF29-4BA2-B313-51A8F064CA02": {"try_observer.lua\\onWallEvent", {"note": "test"}}}`
+    - `acapi.unwatch(guid)` → calls `ACAPI_Element_DetachObserver(guid)`. Clears the `guid` entry from the session map and Project Storage (also drops any pending Edit).
   - In the global `APIElementEventHandlerProc` callback:
-    - On `APINotifyElement_Change` or `APINotifyElement_Edit`, dispatch a single generic Lua event `onElementChanged(guid)`.
-    - Ignore property changes, classifications, transform matrices, and undo/redo variants.
+    - On `APINotifyElement_Edit`, do NOT call Lua immediately — store/overwrite a pending entry per guid.
+    - On `APINotifyElement_Change`, first dispatch the pending Edit (if any) as `func(guid, kwargs, "edit")`, then dispatch `func(guid, kwargs, "change")`. Lua is notified of both kinds but runs only for the last Edit in a row (drag end) plus the drop.
+    - Ignore property changes, classifications, transform matrices, and undo/redo variants (DB writes are forbidden during Undo/Redo).
+    - Reentrancy guard: notifications triggered by our own callback's DB writes are skipped (delete-and-re-add on the watched wall would otherwise recurse).
+	- A new standalone `try_observer.lua` tests this functionality (independent from the window placer script).
 
-- [ ] **Lua Integration (`try_window_placer.lua`):**
-  - When picking a wall via `onPickWall`, automatically call `acapi.watch(selectedWall)`.
-  - Define `UI_EVENTS.onElementChanged = function(guid)`:
-    - If `guid == selectedWall`, re-trigger the window placement/update logic to keep the window synchronized with the moved wall.
+- [ ] **Lua Integration (`try_observer.lua`, new):**
+  - Upon picking a wall (triggered by the UI pick button), call `acapi.watch(wallGuid, "try_observer.lua\\onWallEvent", {note = "..."})`.
+  - Define the callback function:
+    - `function onWallEvent(guid, kwargs, kind)`: log `kind` (`"edit"`/`"change"`) + counter via `SetWebResult`.
 
 - [ ] **Verification Gate:**
   - Drag or move the watched wall in ArchiCAD 2D/3D viewport.
-  - Verify that `onElementChanged` fires in Lua and the window updates position.
+  - Verify exactly one `edit` + one `change` dispatch per drag, then reload the project and verify the watch was restored from Project Storage.
   - Do NOT implement watched-lists, UI observer panels, or complex C++ classes.
 
 ## Phase 3.8: PolygonReducer Port to ArchiLua (Interactive PoC)
@@ -89,6 +94,9 @@
   - **Live Redraw & Metadata Tracking:**
     - GUI callbacks trigger `acapi.drawfeedback(reducedPoly)` on slider/entry input for live preview.
     - On confirmation/apply, create the new reduced element and attach metadata referencing the original parent GUID.
+		
+## Phase 3.9: Async Minizinc Discrete Optimization
+
 
 ## Phase 4: Stability & Logic (The MVP)
 - [ ] **GC Safety:** C++ side `collectgarbage("stop")` before ACAPI calls and `collectgarbage("collect")` on scope exit.

@@ -72,8 +72,14 @@
 
 - [ ] **Verification Gate:**
   - Drag or move the watched wall in ArchiCAD 2D/3D viewport.
-  - Verify exactly one `edit` + one `change` dispatch per drag, then reload the project and verify the watch was restored from Project Storage.
+  - Verified so far: one coalesced `edit` arrives at drop (no flood during drag). Reload-persistence restore not yet verified.
   - Do NOT implement watched-lists, UI observer panels, or complex C++ classes.
+
+- [ ] **Divider Demo (`try_dividers.lua`):**
+  - Place 10 divider ticks (narrow windows) on a picked wall, watch it, recompute proportional `objLoc` on wall `edit`/`change` (pure moves are no-ops: owned windows travel along).
+
+- [ ] **Observer Polish / Finalize (deferred):**
+  - Decide `observerLog` fate (keep as diagnostic or remove); verify reload-persistence; revisit Edit-during-drag semantics if ArchiCAD behavior differs per operation.
 
 ## Phase 3.8: PolygonReducer Port to ArchiLua (Interactive PoC)
 - [ ] **Reference Code Analysis:**

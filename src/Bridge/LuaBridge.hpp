@@ -43,6 +43,7 @@ public:
         });
 
         APIModule::Register(L);
+        APIModule::SetObserverContext(L, &m_debugger);
 
         LoadLastScriptPath();
     }

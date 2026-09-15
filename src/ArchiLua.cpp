@@ -160,6 +160,9 @@ GSErrCode __ACENV_CALL Initialize(void)
     GetBridge().Init();
     RegisterWebUIFunctions(GetBridge().State());
 
+    // Install element observer (Phase 3.7) + restore persisted watches
+    APIModule::InstallObserver();
+
     // Register modeless window so ArchiCAD doesn't unload the add-on while the palette is open
     ACAPI_RegisterModelessWindow(LuaScriptDialog::PaletteRefId(),
                                  LuaScriptDialog::PaletteAPIControlCallBack,

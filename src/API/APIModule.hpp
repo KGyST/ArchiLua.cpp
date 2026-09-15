@@ -8,8 +8,13 @@ extern "C" {
 
 #include "ACAPinc.h"
 #include "../ArchiLua.hpp"
+#include "../Bridge/LuaDebugger.hpp"
 
 #include <cmath>
+#include <cstring>
+#include <map>
+#include <string>
+#include <vector>
 
 namespace ArchiLua {
 namespace APIModule {
@@ -1962,6 +1967,414 @@ static int RegWrite(lua_State* L)
     return 1;
 }
 
+// ---------------------------------------------------------------------------
+// Minimalist element observer (Phase 3.7 PoC).
+// Session map: watched-guid -> {func_url, kwargs registry ref}.
+// Persisted as JSON text in project ModulData ("watches") so watches survive
+// project reload. Edit bursts are coalesced: Lua runs once for the last Edit
+// in a row (flushed on Change, leftovers on EndEvents) plus once on Change.
+// A depth guard skips notifications caused by our own callback's DB writes.
+// ---------------------------------------------------------------------------
+
+namespace {
+struct WatchEntry {
+    std::string funcUrl;
+    int         kwargsRef = LUA_NOREF;
+};
+}
+
+static std::map<std::string, WatchEntry>& WatchMap()
+{
+    static std::map<std::string, WatchEntry> m;
+    return m;
+}
+
+static std::map<std::string, bool>& PendingEdits()
+{
+    static std::map<std::string, bool> m;
+    return m;
+}
+
+static lua_State*& ObserverState()
+{
+    static lua_State* L = nullptr;
+    return L;
+}
+
+static LuaDebugger*& ObserverDebugger()
+{
+    static LuaDebugger* d = nullptr;
+    return d;
+}
+
+static int& DispatchDepth()
+{
+    static int d = 0;
+    return d;
+}
+
+inline void SetObserverContext(lua_State* L, LuaDebugger* dbg)
+{
+    ObserverState() = L;
+    ObserverDebugger() = dbg;
+}
+
+// Lua table -> Json (mirror of PushJsonToLua). Non-table scalars convert
+// directly; functions/userdata become null. Depth-limited (cycle guard).
+static Json LuaTableToJson(lua_State* L, int idx, int depth = 0)
+{
+    Json v;
+    if (depth > 8)
+        return v;
+    idx = lua_absindex(L, idx);
+    switch (lua_type(L, idx)) {
+        case LUA_TNIL:
+            v.type = Json::Null;
+            break;
+        case LUA_TBOOLEAN:
+            v.type = Json::Bool;
+            v.b = lua_toboolean(L, idx) != 0;
+            break;
+        case LUA_TNUMBER:
+            v.type = Json::Num;
+            v.n = lua_tonumber(L, idx);
+            break;
+        case LUA_TSTRING:
+            v.type = Json::Str;
+            v.s = lua_tostring(L, idx);
+            break;
+        case LUA_TTABLE: {
+            size_t count = 0;
+            bool isArr = true;
+            lua_pushnil(L);
+            while (lua_next(L, idx) != 0) {
+                if (lua_type(L, -2) != LUA_TNUMBER || !lua_isinteger(L, -2) || lua_tointeger(L, -2) < 1)
+                    isArr = false;
+                ++count;
+                lua_pop(L, 1);
+            }
+            if (isArr && count > 0) {
+                v.type = Json::Arr;
+                for (size_t i = 1; i <= count; ++i) {
+                    lua_rawgeti(L, idx, (lua_Integer)i);
+                    v.a.push_back(LuaTableToJson(L, -1, depth + 1));
+                    lua_pop(L, 1);
+                }
+            } else {
+                v.type = Json::Obj;
+                lua_pushnil(L);
+                while (lua_next(L, idx) != 0) {
+                    std::string key;
+                    if (lua_type(L, -2) == LUA_TSTRING)
+                        key = lua_tostring(L, -2);
+                    else if (lua_isnumber(L, -2))
+                        key = lua_tostring(L, -2);
+                    else {
+                        lua_pop(L, 1);
+                        continue;
+                    }
+                    v.o.push_back({key, LuaTableToJson(L, -1, depth + 1)});
+                    lua_pop(L, 1);
+                }
+            }
+            break;
+        }
+        default:
+            v.type = Json::Null;
+            break;
+    }
+    return v;
+}
+
+// Json -> Lua (local mirror of LuaWebDialog::PushJsonToLua, avoids coupling).
+static void PushJsonVal(lua_State* L, const Json& val)
+{
+    switch (val.type) {
+        case Json::Null:
+            lua_pushnil(L);
+            break;
+        case Json::Bool:
+            lua_pushboolean(L, val.b);
+            break;
+        case Json::Num:
+            lua_pushnumber(L, val.n);
+            break;
+        case Json::Str:
+            lua_pushstring(L, val.s.c_str());
+            break;
+        case Json::Arr:
+            lua_newtable(L);
+            for (size_t i = 0; i < val.a.size(); ++i) {
+                PushJsonVal(L, val.a[i]);
+                lua_rawseti(L, -2, (int)(i + 1));
+            }
+            break;
+        case Json::Obj:
+            lua_newtable(L);
+            for (size_t i = 0; i < val.o.size(); ++i) {
+                lua_pushstring(L, val.o[i].first.c_str());
+                PushJsonVal(L, val.o[i].second);
+                lua_rawset(L, -3);
+            }
+            break;
+    }
+}
+
+static void PersistWatches()
+{
+    lua_State* L = ObserverState();
+    if (L == nullptr)
+        return;
+    if (WatchMap().empty()) {
+        ACAPI_ModulData_Delete(GS::UniString("watches"));
+        return;
+    }
+    Json root;
+    root.type = Json::Obj;
+    for (const auto& [guid, entry] : WatchMap()) {
+        Json item;
+        item.type = Json::Obj;
+        Json url;
+        url.type = Json::Str;
+        url.s = entry.funcUrl;
+        item.o.push_back({"func_url", url});
+        Json kw;
+        kw.type = Json::Obj;
+        if (entry.kwargsRef != LUA_NOREF) {
+            lua_rawgeti(L, LUA_REGISTRYINDEX, entry.kwargsRef);
+            kw = LuaTableToJson(L, -1);
+            lua_pop(L, 1);
+            if (kw.type != Json::Obj)
+                kw.type = Json::Obj;
+        }
+        item.o.push_back({"kwargs", kw});
+        root.o.push_back({guid, item});
+    }
+    std::string text = root.Dump();
+    GSHandle h = BMAllocateHandle((GSSize)text.size() + 1, 0, 0);
+    if (h == nullptr)
+        return;
+    memcpy(*h, text.c_str(), text.size() + 1);
+    API_ModulData md = {};
+    md.dataVersion = 1;
+    md.platformSign = GS::Win_Platform_Sign;
+    md.dataHdl = h;
+    ACAPI_ModulData_Store(&md, GS::UniString("watches"));
+    BMKillHandle(&h);
+}
+
+static void RestoreWatches()
+{
+    lua_State* L = ObserverState();
+    if (L == nullptr)
+        return;
+    API_ModulData md = {};
+    if (ACAPI_ModulData_Get(&md, GS::UniString("watches")) != NoError || md.dataHdl == nullptr)
+        return;
+    GSSize sz = BMGetHandleSize(md.dataHdl);
+    std::string text(*md.dataHdl, (size_t)sz);
+    BMKillHandle(&md.dataHdl);
+    Json root = Json::Parse(text);
+    if (root.type != Json::Obj)
+        return;
+    bool pruned = false;
+    for (size_t i = 0; i < root.o.size(); ++i) {
+        const std::string& guidStr = root.o[i].first;
+        const Json& item = root.o[i].second;
+        if (item.type != Json::Obj)
+            continue;
+        std::string funcUrl;
+        Json kwargs;
+        kwargs.type = Json::Obj;
+        for (size_t k = 0; k < item.o.size(); ++k) {
+            if (item.o[k].first == "func_url" && item.o[k].second.type == Json::Str)
+                funcUrl = item.o[k].second.s;
+            else if (item.o[k].first == "kwargs" && item.o[k].second.type == Json::Obj)
+                kwargs = item.o[k].second;
+        }
+        if (funcUrl.empty()) {
+            pruned = true;
+            continue;
+        }
+        API_Guid guid = APIGuidFromString(guidStr.c_str());
+        API_Element elem;
+        BNZeroMemory(&elem, sizeof(elem));
+        elem.header.guid = guid;
+        if (ACAPI_Element_Get(&elem) != NoError) {
+            pruned = true; // element gone (deleted since save) — drop the watch
+            continue;
+        }
+        if (ACAPI_Element_AttachObserver(guid, 0) != NoError) {
+            pruned = true;
+            continue;
+        }
+        PushJsonVal(L, kwargs);
+        WatchEntry entry;
+        entry.funcUrl = funcUrl;
+        entry.kwargsRef = luaL_ref(L, LUA_REGISTRYINDEX);
+        WatchMap()[guidStr] = entry;
+    }
+    if (pruned)
+        PersistWatches();
+}
+
+static void DispatchWatch(const std::string& guidStr, const char* kind)
+{
+    auto it = WatchMap().find(guidStr);
+    if (it == WatchMap().end())
+        return;
+    lua_State* L = ObserverState();
+    if (L == nullptr)
+        return;
+    std::string func = it->second.funcUrl;
+    size_t bs = func.find('\\');
+    if (bs != std::string::npos)
+        func = func.substr(bs + 1); // "script.lua\Func" -> Func (script part informational for now)
+    lua_getglobal(L, func.c_str());
+    if (!lua_isfunction(L, -1)) {
+        ACAPI_WriteReport(("watch: function not found: " + func).c_str(), true);
+        lua_pop(L, 1);
+        return;
+    }
+    lua_pushstring(L, guidStr.c_str());
+    if (it->second.kwargsRef != LUA_NOREF)
+        lua_rawgeti(L, LUA_REGISTRYINDEX, it->second.kwargsRef);
+    else
+        lua_newtable(L);
+    if (!lua_istable(L, -1)) {
+        lua_pop(L, 1);
+        lua_newtable(L);
+    }
+    lua_pushstring(L, kind);
+
+    LuaDebugger* dbg = ObserverDebugger();
+    bool hadHook = false;
+    if (dbg != nullptr && dbg->HasClient()) {
+        LuaDebugger::ActivateForCallback(dbg);
+        lua_sethook(L, LuaDebugger::DebugHook, LUA_MASKLINE, 0);
+        hadHook = true;
+    }
+    ++DispatchDepth();
+    if (lua_pcall(L, 3, 0, 0) != LUA_OK) {
+        const char* err = lua_tostring(L, -1);
+        if (err)
+            ACAPI_WriteReport(err, true);
+        lua_pop(L, 1);
+    }
+    --DispatchDepth();
+    if (hadHook) {
+        lua_sethook(L, nullptr, 0, 0);
+        LuaDebugger::DeactivateForCallback();
+    }
+}
+
+static void FlushPendingEdits()
+{
+    std::vector<std::string> guids;
+    for (const auto& [guid, pending] : PendingEdits()) {
+        if (pending)
+            guids.push_back(guid);
+    }
+    PendingEdits().clear();
+    for (const std::string& guid : guids)
+        DispatchWatch(guid, "edit");
+}
+
+static GSErrCode __ACENV_CALL ObserverHandler(const API_NotifyElementType* et)
+{
+    if (et == nullptr || DispatchDepth() > 0)
+        return NoError; // nested notification from our own callback's DB writes
+    if (et->notifID == APINotifyElement_EndEvents) {
+        FlushPendingEdits(); // burst ended (incl. drag-cancel with no Change)
+        return NoError;
+    }
+    if (et->notifID != APINotifyElement_Change && et->notifID != APINotifyElement_Edit)
+        return NoError; // ignore property/classification/undo/redo/etc.
+    GS::UniString guidU = APIGuidToString(et->elemHead.guid);
+    std::string guidStr(guidU.ToCStr().Get());
+    if (WatchMap().find(guidStr) == WatchMap().end())
+        return NoError;
+    if (et->notifID == APINotifyElement_Edit) {
+        PendingEdits()[guidStr] = true; // coalesce: Lua runs once for the last Edit
+        return NoError;
+    }
+    auto pit = PendingEdits().find(guidStr);
+    if (pit != PendingEdits().end()) {
+        PendingEdits().erase(pit);
+        DispatchWatch(guidStr, "edit");
+    }
+    DispatchWatch(guidStr, "change");
+    return NoError;
+}
+
+static int Watch(lua_State* L)
+{
+    const char* guidStr = lua_tostring(L, 1);
+    const char* funcUrl = lua_tostring(L, 2);
+    if (guidStr == nullptr || funcUrl == nullptr || funcUrl[0] == '\0') {
+        lua_pushboolean(L, false);
+        lua_pushstring(L, "watch: expected guid, func_url[, kwargs table]");
+        return 2;
+    }
+    if (!lua_istable(L, 3) && !lua_isnoneornil(L, 3)) {
+        lua_pushboolean(L, false);
+        lua_pushstring(L, "watch: kwargs must be a table or nil");
+        return 2;
+    }
+    API_Guid guid = APIGuidFromString(guidStr);
+    GSErrCode err = ACAPI_Element_AttachObserver(guid, 0);
+    if (err != NoError) {
+        lua_pushboolean(L, false);
+        lua_pushfstring(L, "AttachObserver failed: err=%d", (int)err);
+        return 2;
+    }
+    auto& map = WatchMap();
+    auto it = map.find(guidStr);
+    if (it != map.end() && it->second.kwargsRef != LUA_NOREF)
+        luaL_unref(L, LUA_REGISTRYINDEX, it->second.kwargsRef);
+    WatchEntry entry;
+    entry.funcUrl = funcUrl;
+    if (lua_istable(L, 3))
+        lua_pushvalue(L, 3);
+    else
+        lua_newtable(L);
+    entry.kwargsRef = luaL_ref(L, LUA_REGISTRYINDEX);
+    map[guidStr] = entry;
+    PendingEdits().erase(guidStr);
+    PersistWatches();
+    lua_pushboolean(L, true);
+    return 1;
+}
+
+static int Unwatch(lua_State* L)
+{
+    const char* guidStr = lua_tostring(L, 1);
+    if (guidStr == nullptr) {
+        lua_pushboolean(L, false);
+        lua_pushstring(L, "unwatch: expected guid");
+        return 2;
+    }
+    API_Guid guid = APIGuidFromString(guidStr);
+    ACAPI_Element_DetachObserver(guid); // ignore errors (e.g. element already gone)
+    auto& map = WatchMap();
+    auto it = map.find(guidStr);
+    if (it != map.end()) {
+        if (it->second.kwargsRef != LUA_NOREF)
+            luaL_unref(L, LUA_REGISTRYINDEX, it->second.kwargsRef);
+        map.erase(it);
+        PersistWatches();
+    }
+    PendingEdits().erase(guidStr);
+    lua_pushboolean(L, true);
+    return 1;
+}
+
+inline void InstallObserver()
+{
+    ACAPI_Element_InstallElementObserver(ObserverHandler);
+    RestoreWatches();
+}
+
 inline void Register(lua_State* L)
 {
     lua_newtable(L);
@@ -2028,6 +2441,12 @@ inline void Register(lua_State* L)
 
     lua_pushcfunction(L, SetGDLParam);
     lua_setfield(L, -2, "setGDLParam");
+
+    lua_pushcfunction(L, Watch);
+    lua_setfield(L, -2, "watch");
+
+    lua_pushcfunction(L, Unwatch);
+    lua_setfield(L, -2, "unwatch");
 
     lua_pushcfunction(L, RegRead);
     lua_setfield(L, -2, "regRead");

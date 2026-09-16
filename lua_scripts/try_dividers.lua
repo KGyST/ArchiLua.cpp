@@ -3,7 +3,7 @@
 -- On wall Change/Edit their XY positions are recomputed from the new begC/endC.
 
 -- Bump on every script change; shown in the dialog footer to verify what's running.
-local SCRIPT_VER = "2026-09-16g"
+local SCRIPT_VER = "2026-09-16h"
 
 local watchedWall = nil
 local dividers = {} -- divider entries {guid, angle}, in wall order
@@ -42,6 +42,29 @@ local function persistState()
     acapi.regWrite(REG_SEC, "dividers", table.concat(gs, ","))
     acapi.regWrite(REG_SEC, "angles", table.concat(as, ","))
     acapi.regWrite(REG_SEC, "libInd", dividers.libInd ~= nil and tostring(dividers.libInd) or "")
+end
+
+-- Drop entries whose elements no longer exist (hand-deleted in the plan,
+// orphans from before re-place cleared). Delete batches are all-or-nothing,
+// so one stale guid would fail the whole flush with APIERR_BADID.
+local function pruneStale()
+    local kept, dropped = {}, 0
+    for _, d in ipairs(dividers) do
+        if type(d) == "table" and d.guid and acapi.get(d.guid) then
+            kept[#kept + 1] = d
+        else
+            dropped = dropped + 1
+        end
+    end
+    if dropped > 0 then
+        local li = dividers.libInd
+        dividers = {}
+        for i, d in ipairs(kept) do dividers[i] = d end
+        dividers.libInd = li
+        logEvent("pruned " .. dropped .. " stale dividers")
+        persistState()
+    end
+    return dropped
 end
 
 local function splitCsv(s)
@@ -152,6 +175,10 @@ local function refreshDividers(wallGuid)
     if not wall or #dividers == 0 then
         return false
     end
+    pruneStale()
+    if #dividers == 0 then
+        return false, "all dividers gone from the model"
+    end
     local dx = wall.endC.x - wall.begC.x
     local dy = wall.endC.y - wall.begC.y
     local spacing = math.sqrt(dx * dx + dy * dy) / DIV_COUNT
@@ -248,6 +275,7 @@ RegisterWebEvent("onPlaceDividers", function(args)
         return
     end
     watchedWall = guid
+    pruneStale()
     if #dividers > 0 then
         -- Re-place replaces: clear the previous row first, else it orphans.
         -- Abort on flush failure so we never stack a new row on a live old one.
@@ -336,6 +364,7 @@ RegisterWebEvent("onRefreshDividers", function(args)
 end)
 
 RegisterWebEvent("onDeleteDividers", function()
+    pruneStale()
     if #dividers == 0 then
         SetWebResult("No dividers to delete")
         return

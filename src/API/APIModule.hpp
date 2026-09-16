@@ -779,6 +779,45 @@ static int FindObject(lua_State* L)
     return 2;
 }
 
+// libInfo(name) — diagnostic: {index, name, libType, isTemplate, isPlaceable,
+// version} for a library part. Tells whether a part can be instantiated
+// (non-placeable parts fail Element_Create with BADPARS).
+static int LibInfo(lua_State* L)
+{
+    const char* name = lua_tostring(L, 1);
+    if (name == nullptr) {
+        lua_pushnil(L);
+        lua_pushstring(L, "expected a name string argument");
+        return 2;
+    }
+
+    API_LibPart libPart;
+    BNZeroMemory(&libPart, sizeof(libPart));
+    GS::ucscpy(libPart.docu_UName, GS::UniString(name).ToUStr());
+
+    GSErrCode err = ACAPI_LibraryPart_Search(&libPart, false);
+    if (err != NoError || libPart.index == 0) {
+        lua_pushnil(L);
+        lua_pushfstring(L, "library part not found: %s", name);
+        return 2;
+    }
+
+    lua_createtable(L, 0, 6);
+    lua_pushinteger(L, libPart.index);
+    lua_setfield(L, -2, "index");
+    lua_pushstring(L, GS::UniString(libPart.docu_UName).ToCStr().Get());
+    lua_setfield(L, -2, "name");
+    lua_pushinteger(L, (int)libPart.typeID);
+    lua_setfield(L, -2, "libType");
+    lua_pushboolean(L, libPart.isTemplate);
+    lua_setfield(L, -2, "isTemplate");
+    lua_pushboolean(L, libPart.isPlaceable);
+    lua_setfield(L, -2, "isPlaceable");
+    lua_pushinteger(L, libPart.version);
+    lua_setfield(L, -2, "version");
+    return 1;
+}
+
 static int CreateElement(lua_State* L)
 {
     if (!lua_isinteger(L, 1) || !lua_istable(L, 2)) {
@@ -2792,6 +2831,9 @@ inline void Register(lua_State* L)
 
     lua_pushcfunction(L, FindObject);
     lua_setfield(L, -2, "findObject");
+
+    lua_pushcfunction(L, LibInfo);
+    lua_setfield(L, -2, "libInfo");
 
     lua_pushcfunction(L, CreateElement);
     lua_setfield(L, -2, "create");

@@ -229,8 +229,15 @@ RegisterWebEvent("onInspectPart", function(args)
         end
     end
     -- NOTE: SetWebResult truncates at ~500 chars; keep it short
-    SetWebResult(string.format("'%s': %d params; A/B/ZZYZX: %s",
-        tostring(found), #pars, table.concat(hits, " | ")))
+    local info = acapi.libInfo(partName)
+    local flags = "?"
+    if info then
+        flags = string.format("idx=%d type=%d tmpl=%s place=%s",
+            info.index, info.libType,
+            info.isTemplate and "Y" or "n", info.isPlaceable and "Y" or "n")
+    end
+    SetWebResult(string.format("'%s' [%s]: %d params; A/B/ZZYZX: %s",
+        tostring(found), flags, #pars, table.concat(hits, " | ")))
 end)
 
 RegisterWebEvent("onToggleLog", function(args)

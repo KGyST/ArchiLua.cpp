@@ -3,7 +3,7 @@
 -- On wall Change/Edit their XY positions are recomputed from the new begC/endC.
 
 -- Bump on every script change; shown in the dialog footer to verify what's running.
-local SCRIPT_VER = "2026-09-16h"
+local SCRIPT_VER = "2026-09-16i"
 
 local watchedWall = nil
 local dividers = {} -- divider entries {guid, angle}, in wall order
@@ -28,6 +28,9 @@ end
 local function effB(wall)
     return opts.b or wall.thickness
 end
+
+-- Forward declaration: pruneStale (below) runs before the definition.
+local logEvent
 
 -- Script globals die on every re-run while the C++ watch survives, so the
 -- wall guid, divider guids/angles, libInd and watch flag persist in registry.
@@ -233,30 +236,28 @@ end
 
 local eventLogCount = 0
 
-local function logEvent(text)
+logEvent = function(text)
     eventLogCount = eventLogCount + 1
     -- eventLog() is defined in the dialog HTML; falls back to result div
     ExecuteJS(string.format("if (typeof eventLog === 'function') { eventLog('#%d %s'); }",
         eventLogCount, text:gsub("'", "")))
 end
 
--- Set when a sync is refused mid-drag (APIERR_REFUSEDCMD on the nested undo
--- command); the next event (drop/EndEvents) retries and normally succeeds.
+-- Writes are refused inside element notifications (APIERR_REFUSEDCMD on nested
+-- undoable commands — menu/button context is the only safe place). So wall
+-- events only ATTEMPT a sync (harmless when allowed) and otherwise mark dirty;
+-- the JS heartbeat (same safe context as button clicks) performs the real sync.
 local syncDirty = false
 
-function onDividersWallEvent(guid, kwargs, kind)
-    if kind ~= "edit" and kind ~= "change" then
-        return
-    end
-    local ok, info = refreshDividers(guid)
+local function reportSync(kind, ok, info)
     if ok then
         syncDirty = false
         local msg = string.format("Dividers synced (%s): %d points", tostring(kind), #dividers)
         SetWebResult(msg)
         logEvent(msg)
     elseif tostring(info):find("endUndo flush refused") then
-        syncDirty = true -- drag still open; stay quiet-ish, the next event retries
-        local msg = "Sync deferred mid-drag (" .. tostring(kind) .. "), will retry"
+        syncDirty = true
+        local msg = "Sync deferred mid-drag (" .. tostring(kind) .. "), heartbeat will retry"
         SetWebResult(msg)
         logEvent(msg)
     else
@@ -264,6 +265,28 @@ function onDividersWallEvent(guid, kwargs, kind)
         SetWebResult(msg)
         logEvent(msg)
     end
+end
+
+function onDividersWallEvent(guid, kwargs, kind)
+    if kind ~= "edit" and kind ~= "change" then
+        return
+    end
+    local ok, info = refreshDividers(guid)
+    reportSync(kind, ok, info)
+end
+
+-- Called by the JS heartbeat (~1Hz while watching). Same safe context as a
+-- button click, so commands are allowed here.
+function onTick()
+    if not syncDirty then
+        return
+    end
+    if not watchedWall or #dividers == 0 then
+        syncDirty = false
+        return
+    end
+    local ok, info = refreshDividers(watchedWall)
+    reportSync("tick", ok, info)
 end
 
 RegisterWebEvent("onPlaceDividers", function(args)
@@ -298,6 +321,7 @@ RegisterWebEvent("onPlaceDividers", function(args)
     end
     local wok, werr = acapi.watch(guid, "try_dividers.lua\\onDividersWallEvent", { count = DIV_COUNT })
     if wok then
+        ExecuteJS("startTick();")
         local msg = string.format("Placed %d × '%s', watching wall", #dividers, tostring(info))
         if tostring(info):find(", 0 overrides") then
             msg = msg .. " — WARNING: no param override matched! Hit Inspect Part."
@@ -339,6 +363,10 @@ RegisterWebEvent("onInspectPart", function(args)
     end
     SetWebResult(string.format("'%s' [%s]: %d params; A/B/ZZYZX: %s",
         tostring(found), flags, #pars, table.concat(hits, " | ")))
+end)
+
+RegisterWebEvent("onTick", function()
+    onTick()
 end)
 
 RegisterWebEvent("onToggleLog", function(args)
@@ -389,6 +417,7 @@ end)
 RegisterWebEvent("onUnwatchDividers", function()
     if watchedWall then
         acapi.unwatch(watchedWall)
+        ExecuteJS("stopTick();")
         SetWebResult("Unwatched (points stay in the plan)")
         watchedWall = nil
         persistState()
@@ -461,6 +490,14 @@ function inspectPart(){
 function toggleLog(){
     archilua.CallLua('onToggleLog', JSON.stringify({ enabled: document.getElementById('logEvents').checked }));
 }
+var tickTimer = null;
+function startTick(){
+    if(tickTimer) return;
+    tickTimer = setInterval(function(){ archilua.DispatchEvent('onTick'); }, 800);
+}
+function stopTick(){
+    if(tickTimer){ clearInterval(tickTimer); tickTimer = null; }
+}
 </script></body></html>
 ]])
 
@@ -492,6 +529,7 @@ do
         dividers.libInd = tonumber(acapi.regRead(REG_SEC, "libInd", ""))
         if acapi.regRead(REG_SEC, "watched", "false") == "true" and #dividers > 0 then
             acapi.watch(w, "try_dividers.lua\\onDividersWallEvent", { count = DIV_COUNT })
+            ExecuteJS("startTick();")
             logEvent("restored " .. #dividers .. " dividers, watching")
         elseif #dividers > 0 then
             logEvent("restored " .. #dividers .. " dividers (not watching)")

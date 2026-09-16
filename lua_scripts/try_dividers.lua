@@ -3,7 +3,7 @@
 -- On wall Change/Edit their XY positions are recomputed from the new begC/endC.
 
 -- Bump on every script change; shown in the dialog footer to verify what's running.
-local SCRIPT_VER = "2026-09-16n"
+local SCRIPT_VER = "2026-09-16o"
 
 local watchedWall = nil
 local dividers = {} -- divider entries {guid, angle}, in wall order
@@ -269,7 +269,12 @@ end
 
 local function handleWallSync(guid, kind)
     if #dividers == 0 then
-        return -- empty row (pruned/deleted): events stay silent, manual path reports
+        -- Empty row: wall moves alone. Say so (silence here caused confusion);
+        -- recovery is Redo (restores same guids) or re-place.
+        local msg = "Wall moved but no dividers tracked — Redo, or Pick Wall + Place Points"
+        SetWebResult(msg)
+        logEvent("wall moved, row empty")
+        return
     end
     local wall = acapi.getWall(guid)
     local key = wall and syncKey(wall) or nil

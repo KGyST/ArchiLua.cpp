@@ -896,15 +896,44 @@ static int CreateElement(lua_State* L)
             ACAPI_WriteReport("create: warning — none of the override names matched a parameter", false);
         }
 
-        // Create the element (memo carries defaults + overrides)
+        // Create the element (defaults memo; Create may ignore memo params,
+        // so overrides are applied via Change below — the proven path).
         e = ACAPI_Element_Create(&elem, &memo);
         ACAPI_DisposeElemMemoHdls(&memo);
         if (e != NoError) {
             std::sprintf(errorMsg, "Element_Create failed: err=%d", (int)e);
             return e;
         }
-
         createdGuid = elem.header.guid;
+
+        if (hasParams) {
+            API_Element elem2;
+            BNZeroMemory(&elem2, sizeof(elem2));
+            elem2.header.guid = createdGuid;
+            e = ACAPI_Element_Get(&elem2);
+            if (e != NoError) {
+                std::sprintf(errorMsg, "post-create Get failed: err=%d", (int)e);
+                return e;
+            }
+            API_ElementMemo memo2;
+            BNZeroMemory(&memo2, sizeof(memo2));
+            e = ACAPI_Element_GetMemo(createdGuid, &memo2, APIMemoMask_AddPars);
+            if (e != NoError || memo2.params == nullptr) {
+                if (e == NoError)
+                    ACAPI_DisposeElemMemoHdls(&memo2);
+                std::sprintf(errorMsg, "create: no params memo (overrides refused)");
+                return APIERR_GENERAL;
+            }
+            appliedOverrides = ApplyParamOverrides(L, 3, memo2);
+            API_Element mask2;
+            ACAPI_ELEMENT_MASK_CLEAR(mask2);
+            e = ACAPI_Element_Change(&elem2, &mask2, &memo2, APIMemoMask_AddPars, true);
+            ACAPI_DisposeElemMemoHdls(&memo2);
+            if (e != NoError) {
+                std::sprintf(errorMsg, "post-create param change failed: err=%d", (int)e);
+                return e;
+            }
+        }
         return NoError;
     });
 

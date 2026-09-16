@@ -142,7 +142,7 @@ RegisterWebEvent("onPlaceDividers", function(args)
     local wok, werr = acapi.watch(guid, "try_dividers.lua\\onDividersWallEvent", { count = DIV_COUNT })
     if wok then
         local msg = string.format("Placed %d x '%s', watching wall", #dividers, tostring(info))
-        if tostring(info):find("0 overrides") then
+        if tostring(info):find(", 0 overrides") then
             msg = msg .. " — WARNING: no param override matched! Hit Inspect Part."
         end
         ExecuteJS("document.getElementById('result').textContent='" .. msg:gsub("'", "") .. "';")

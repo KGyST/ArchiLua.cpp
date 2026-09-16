@@ -3,7 +3,7 @@
 -- On wall Change/Edit their XY positions are recomputed from the new begC/endC.
 
 -- Bump on every script change; shown in the dialog footer to verify what's running.
-local SCRIPT_VER = "2026-09-16l"
+local SCRIPT_VER = "2026-09-16m"
 
 local watchedWall = nil
 local dividers = {} -- divider entries {guid, angle}, in wall order
@@ -175,8 +175,11 @@ end
 
 local function refreshDividers(wallGuid)
     local wall = acapi.getWall(wallGuid)
-    if not wall or #dividers == 0 then
-        return false
+    if not wall then
+        return false, "wall not found"
+    end
+    if #dividers == 0 then
+        return false, "no dividers tracked (place first)"
     end
     pruneStale()
     if #dividers == 0 then
@@ -265,6 +268,9 @@ local function reportSync(kind, ok, info)
 end
 
 local function handleWallSync(guid, kind)
+    if #dividers == 0 then
+        return -- empty row (pruned/deleted): events stay silent, manual path reports
+    end
     local wall = acapi.getWall(guid)
     local key = wall and syncKey(wall) or nil
     if key ~= nil and lastSync[guid] == key then
@@ -287,17 +293,29 @@ function onDividersWallEvent(guid, kwargs, kind)
     handleWallSync(guid, kind)
 end
 
--- Called by the JS heartbeat (~1Hz while watching). Same safe context as a
--- button click, so commands are allowed here.
+-- Called by the JS heartbeat (800 ms while watching). Same safe context as a
+-- button click, so commands are allowed here. Besides retrying refused syncs,
+-- every beat compares the wall hash: undo/redo (which we must not write
+-- during, and which split wall and panels into separate undo units) shows up
+-- as drift and gets re-synced here — eventual consistency without polling writes.
 function onTick()
-    if not syncDirty then
-        return
-    end
     if not watchedWall or #dividers == 0 then
         syncDirty = false
         return
     end
+    if not syncDirty then
+        local wall = acapi.getWall(watchedWall)
+        if not wall then
+            return
+        end
+        if lastSync[watchedWall] == syncKey(wall) then
+            return -- in sync, stay silent (no log spam)
+        end
+    end
     handleWallSync(watchedWall, "tick")
+    if #dividers == 0 then
+        ExecuteJS("stopTick();") -- row fully pruned; place restarts the tick
+    end
 end
 
 RegisterWebEvent("onPlaceDividers", function(args)
@@ -429,6 +447,7 @@ RegisterWebEvent("onDeleteDividers", function()
     end
     dividers = {}
     persistState()
+    ExecuteJS("stopTick();")
     SetWebResult(string.format("Deleted %d dividers", n))
 end)
 

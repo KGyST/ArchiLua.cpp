@@ -51,7 +51,7 @@
   - `lua_scripts/try_window_placer.lua` persists all form fields on save and restores them on load (section `try_window_placer`).
 	
 ## Phase 3.7: Minimalist Observer (PoC Only)
-- [ ] **Minimal C++ API Binding:**
+- [x] **Minimal C++ API Binding:**
   - Expose two simple C++ functions to Lua:
     - `acapi.watch(guid, func_url, kwargs)` → calls `ACAPI_Element_AttachObserver(guid)`.
       - `func_url` is `"script.lua\\FunctionName"` (script part recorded for future multi-script support; currently the function name is resolved as a Lua global in the shared state).
@@ -65,10 +65,11 @@
     - Reentrancy guard: notifications triggered by our own callback's DB writes are skipped (delete-and-re-add on the watched wall would otherwise recurse).
 	- A new standalone `try_observer.lua` tests this functionality (independent from the window placer script).
 
-- [ ] **Lua Integration (`try_observer.lua`, new):**
+- [x] **Lua Integration (`try_observer.lua`):**
   - Upon picking a wall (triggered by the UI pick button), call `acapi.watch(wallGuid, "try_observer.lua\\onWallEvent", {note = "..."})`.
   - Define the callback function:
     - `function onWallEvent(guid, kwargs, kind)`: log `kind` (`"edit"`/`"change"`) + counter via `SetWebResult`.
+  - Verified: one coalesced `edit` + one `change` per drag; re-watch of a watched wall re-arms cleanly; `observerLog` tracer toggle.
 
 - [ ] **Verification Gate:**
   - Drag or move the watched wall in ArchiCAD 2D/3D viewport.
@@ -77,10 +78,12 @@
 
 - [ ] **Divider Demo (`try_dividers.lua`):**
   - Place 10 standalone divider panels (library objects on the wall centerline) on a picked wall, watch it, recompute XY from `begC`/`endC` and move them via `acapi.set(pos)` on wall `edit`/`change`. Panel part name is user-configurable (persisted in registry); panels removable via `acapi.delete`.
-  - Brick-laying params on place: `A` = division spacing (tiles the wall), `B` = wall thickness, `ZZYZX` = 0.25; `A` re-tiled via `setparams` on sync. Panel rotation follows the wall vector (`angle` on create); wall direction change deletes + recreates (`angle` is not `Change`-editable per DevKit).
-  - `findObject` verifies the match (case-insensitive) and rejects template/non-placeable parts loudly (e.g. `m_Viapanel_Wallpanel` fails `Create` with `BADPARS` — presumed non-placeable); `create` warns when zero overrides apply.
-  - Deferred: center objects on division points (currently the object origin, i.e. left corner, sits on the point).
-  - Undo: `createMany` places the row in one step; `begin/endUndo` batch `set`/`setparams`/`delete` (mask-merged, deletes-first replay).
+  - Verified end-to-end with a placeable part (`'ágy 01 27'`): row tiles the wall, params apply via post-create `Change`, drag/stretch sync follows.
+  - Brick-laying params on place: `A` = division spacing (tiles the wall), `B` = wall width (auto, or fixed UI entry), `ZZYZX` = 0.25 (UI entry); all three re-applied via `setParams` on sync. Panel rotation follows the wall vector (`angle` on create); wall direction change deletes + recreates in 2 undo steps (`angle` is not `Change`-editable per DevKit).
+  - UI: center-on-point shift checkbox, auto-refresh on field edit (debounced), log-events checkbox, Inspect Part (params + lib flags), event log panel, per-item error messages. Session state (wall, dividers, opts, watch flag) survives script re-runs via registry.
+  - `findObject` verifies the match (case-insensitive) and rejects template/non-placeable parts loudly (e.g. `m_Viapanel_Wallpanel` fails `Create` with `BADPARS` — presumed non-placeable, flags confirmation pending); `create`/`createMany` report override counts and warn on zero matches.
+  - API names are case-sensitive: script/DOC/register audit done, single mismatch (`setparams` → `setParams`) fixed.
+  - Undo: `createMany` places the row in one step; `begin/endUndo` batch `set`/`setParams`/`delete` (mask-merged, deletes-first replay).
   - Needs: `acapi.set` `pos` support for objects + `acapi.delete` (done); `acapi.create` lib-type→element-type mapping fixed — `libPart.typeID` is `API_LibTypeID`, never cast to `API_ElemTypeID` (done); `ShowWebDialog` replaces the previous script's GUI instead of showing stale content (done).
 
 - [ ] **Observer Polish / Finalize (deferred):**

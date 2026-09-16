@@ -153,22 +153,18 @@ local function refreshDividers(wallGuid)
     local dy = wall.endC.y - wall.begC.y
     local spacing = math.sqrt(dx * dx + dy * dy) / DIV_COUNT
     local newAngle = wallAngle(wall)
-    local bNow, zNow = effB(wall), opts.zzyzx
+    local params = { A = spacing, B = effB(wall), ZZYZX = opts.zzyzx }
+    -- Partition: moves apply in place, direction changes need a rebuild
+    -- (angle is not Change-editable). All rebuilds go through ONE createMany,
+    -- so even a full rotation re-sync costs 2 undo steps, not 20.
+    local rebuildIdx, rebuildPos = {}, {}
     acapi.beginUndo("Sync dividers")
     for i, d in ipairs(dividers) do
-        local p = divPoint(wall, spacing, newAngle, i)
         if math.abs(newAngle - d.angle) > 1e-6 then
-            -- angle is not Change-editable: delete + recreate aligned to the wall
-            acapi.delete(d.guid)
-            local g, err = acapi.create(dividers.libInd, p,
-                { A = spacing, B = bNow, ZZYZX = zNow })
-            if not g then
-                acapi.endUndo()
-                return false, "recreate " .. i .. ": " .. tostring(err)
-            end
-            d.guid = g
-            d.angle = newAngle
+            table.insert(rebuildIdx, i)
+            rebuildPos[#rebuildPos + 1] = divPoint(wall, spacing, newAngle, i)
         else
+            local p = divPoint(wall, spacing, newAngle, i)
             local ok, err = acapi.set(d.guid, { pos = p })
             if not ok then
                 acapi.endUndo()
@@ -176,14 +172,26 @@ local function refreshDividers(wallGuid)
             end
             -- Re-apply sizes so the row keeps filling the (possibly stretched) wall
             -- and follows edited B/ZZYZX values (no-ops when unchanged)
-            local pok, perr = acapi.setParams(d.guid, { A = spacing, B = bNow, ZZYZX = zNow })
+            local pok, perr = acapi.setParams(d.guid, params)
             if not pok then
                 acapi.endUndo()
                 return false, "setparams " .. i .. ": " .. tostring(perr)
             end
         end
     end
+    for _, i in ipairs(rebuildIdx) do
+        acapi.delete(dividers[i].guid)
+    end
     acapi.endUndo()
+    if #rebuildIdx > 0 then
+        local guids, err = acapi.createMany(dividers.libInd, rebuildPos, params)
+        if not guids then
+            return false, "recreate: " .. tostring(err)
+        end
+        for k, i in ipairs(rebuildIdx) do
+            dividers[i] = { guid = guids[k], angle = newAngle }
+        end
+    end
     persistState() -- guids may have changed on rotation rebuild
     return true
 end

@@ -724,8 +724,9 @@ static int CreateElement(lua_State* L)
 
     Int32 libInd = (Int32)lua_tointeger(L, 1);
 
-    // Position: { x, y } or { x=, y= }
-    double posX = 0, posY = 0;
+    // Position: { x, y } or { x=, y= }, plus optional angle= (radians)
+    double posX = 0, posY = 0, posAngle = 0;
+    bool hasAngle = false;
     lua_getfield(L, 2, "x");
     if (lua_isnumber(L, -1)) {
         posX = lua_tonumber(L, -1);
@@ -751,6 +752,13 @@ static int CreateElement(lua_State* L)
         }
     }
 
+    lua_getfield(L, 2, "angle");
+    if (lua_isnumber(L, -1)) {
+        posAngle = lua_tonumber(L, -1);
+        hasAngle = true;
+    }
+    lua_pop(L, 1);
+
     // Optional params table (3rd arg)
     bool hasParams = lua_istable(L, 3);
 
@@ -774,44 +782,34 @@ static int CreateElement(lua_State* L)
         switch (libPart.typeID) {
             case APILib_ObjectID:
                 elem.header.type.typeID = API_ObjectID;
-                elem.object.libInd = libInd;
-                elem.object.pos.x = posX;
-                elem.object.pos.y = posY;
+                elem.object.libInd = libInd; // must precede GetDefaults (params resolve from it)
                 break;
             default:
                 std::sprintf(errorMsg, "unsupported library part type for creation (libType=%d)", (int)libPart.typeID);
                 return APIERR_GENERAL;
         }
 
-        // Set common fields
-        elem.header.floorInd = 1; // default floor
-
-        // Get default params from the library part and apply overrides
+        // Documented pattern: defaults (layer, etc.) come from GetDefaults,
+        // geometry/position is filled in by us. A zeroed header (layer 0)
+        // makes Element_Create fail with APIERR_BADINDEX.
         API_ElementMemo memo;
         BNZeroMemory(&memo, sizeof(memo));
+        e = ACAPI_Element_GetDefaults(&elem, &memo);
+        if (e != NoError) {
+            std::sprintf(errorMsg, "GetDefaults failed: err=%d", (int)e);
+            return e;
+        }
 
-        if (hasParams) {
-            API_ParamOwnerType paramOwner;
-            BNZeroMemory(&paramOwner, sizeof(paramOwner));
-            paramOwner.libInd = libInd;
-            e = ACAPI_LibraryPart_OpenParameters(&paramOwner);
-            if (e != NoError) {
-                std::sprintf(errorMsg, "OpenParameters failed: err=%d", (int)e);
-                return e;
-            }
+        elem.object.pos.x = posX;
+        elem.object.pos.y = posY;
+        if (hasAngle)
+            elem.object.angle = posAngle;
 
-            API_GetParamsType getParams;
-            BNZeroMemory(&getParams, sizeof(getParams));
-            e = ACAPI_LibraryPart_GetActParameters(&getParams);
-            if (e != NoError || getParams.params == nullptr) {
-                ACAPI_LibraryPart_CloseParameters();
-                std::sprintf(errorMsg, "GetActParameters failed: err=%d", (int)e);
-                return e != NoError ? e : APIERR_GENERAL;
-            }
-
-            UInt32 nParams = (UInt32)(BMGetHandleSize((GSHandle)getParams.params) / sizeof(API_AddParType));
+        // Apply param overrides into the defaults memo
+        if (hasParams && memo.params != nullptr) {
+            UInt32 nParams = (UInt32)(BMGetHandleSize((GSHandle)memo.params) / sizeof(API_AddParType));
             for (UInt32 i = 0; i < nParams; ++i) {
-                API_AddParType& par = (*getParams.params)[i];
+                API_AddParType& par = (*memo.params)[i];
                 if (par.typeMod != API_ParSimple)
                     continue;
 
@@ -842,21 +840,15 @@ static int CreateElement(lua_State* L)
                 lua_pop(L, 1);
             }
 
-            // Transfer params handle to memo
-            ACAPI_DisposeAddParHdl(&memo.params);
-            memo.params = getParams.params;
-            ACAPI_LibraryPart_CloseParameters();
         }
 
-        // Create the element
-        e = ACAPI_Element_Create(&elem, hasParams ? &memo : nullptr);
+        // Create the element (memo carries defaults + overrides)
+        e = ACAPI_Element_Create(&elem, &memo);
+        ACAPI_DisposeElemMemoHdls(&memo);
         if (e != NoError) {
-            if (hasParams) ACAPI_DisposeElemMemoHdls(&memo);
             std::sprintf(errorMsg, "Element_Create failed: err=%d", (int)e);
             return e;
         }
-
-        if (hasParams) ACAPI_DisposeElemMemoHdls(&memo);
 
         createdGuid = elem.header.guid;
         return NoError;

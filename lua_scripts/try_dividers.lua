@@ -14,6 +14,10 @@ local function wallPoint(wall, t)
     }
 end
 
+local function wallAngle(wall)
+    return math.atan(wall.endC.y - wall.begC.y, wall.endC.x - wall.begC.x)
+end
+
 local function resolvePart(name)
     if not name or name == "" then
         return nil, "enter a library part name first"
@@ -38,18 +42,22 @@ local function placeDividers(wallGuid, partName)
     local spacing = (wall.endC.x - wall.begC.x) ^ 2 + (wall.endC.y - wall.begC.y) ^ 2
     spacing = math.sqrt(spacing) / DIV_COUNT -- panel X size tiles the wall exactly
     local params = { A = spacing, B = wall.thickness, ZZYZX = 0.25 }
+    local ang = wallAngle(wall)
     acapi.beginUndo("Place dividers")
     dividers = {}
     for i = 1, DIV_COUNT do
         local p = wallPoint(wall, (i - 0.5) / DIV_COUNT)
+        p.angle = ang
         local g, err = acapi.create(libInd, p, params)
         if not g then
             acapi.endUndo()
             return false, err
         end
-        table.insert(dividers, g)
+        table.insert(dividers, { guid = g, angle = ang })
     end
     acapi.endUndo()
+    -- stash for rebuilds on rotation change
+    dividers.libInd = libInd
     return true
 end
 
@@ -61,16 +69,31 @@ local function refreshDividers(wallGuid)
     local dx = wall.endC.x - wall.begC.x
     local dy = wall.endC.y - wall.begC.y
     local spacing = math.sqrt(dx * dx + dy * dy) / DIV_COUNT
+    local newAngle = wallAngle(wall)
     acapi.beginUndo("Sync dividers")
-    for i, g in ipairs(dividers) do
+    for i, d in ipairs(dividers) do
         local p = wallPoint(wall, (i - 0.5) / DIV_COUNT)
-        local ok, err = acapi.set(g, { pos = p })
-        if not ok then
-            acapi.endUndo()
-            return false
+        if math.abs(newAngle - d.angle) > 1e-6 then
+            -- angle is not Change-editable: delete + recreate aligned to the wall
+            p.angle = newAngle
+            acapi.delete(d.guid)
+            local g, err = acapi.create(dividers.libInd, p,
+                { A = spacing, B = wall.thickness, ZZYZX = 0.25 })
+            if not g then
+                acapi.endUndo()
+                return false
+            end
+            d.guid = g
+            d.angle = newAngle
+        else
+            local ok = acapi.set(d.guid, { pos = p })
+            if not ok then
+                acapi.endUndo()
+                return false
+            end
+            -- Re-tile panel X size so the row keeps filling the (possibly stretched) wall
+            acapi.setparams(d.guid, { A = spacing })
         end
-        -- Re-tile panel X size so the row keeps filling the (possibly stretched) wall
-        acapi.setparams(g, { A = spacing })
     end
     acapi.endUndo()
     return true
@@ -128,8 +151,8 @@ RegisterWebEvent("onDeleteDividers", function()
     end
     acapi.beginUndo("Delete dividers")
     local n = 0
-    for _, g in ipairs(dividers) do
-        if acapi.delete(g) then
+    for _, d in ipairs(dividers) do
+        if acapi.delete(d.guid) then
             n = n + 1
         end
     end

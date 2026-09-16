@@ -103,14 +103,26 @@ local function refreshDividers(wallGuid)
     return true
 end
 
+local eventLogCount = 0
+
+local function logEvent(text)
+    eventLogCount = eventLogCount + 1
+    -- eventLog() is defined in the dialog HTML; falls back to result div
+    ExecuteJS(string.format("if (typeof eventLog === 'function') { eventLog('#%d %s'); }",
+        eventLogCount, text:gsub("'", "")))
+end
+
 function onDividersWallEvent(guid, kwargs, kind)
     if kind ~= "edit" and kind ~= "change" then
         return
     end
     if refreshDividers(guid) then
-        SetWebResult(string.format("Dividers synced (%s): %d points", tostring(kind), #dividers))
+        local msg = string.format("Dividers synced (%s): %d points", tostring(kind), #dividers)
+        SetWebResult(msg)
+        logEvent(msg)
     else
         SetWebResult("Dividers sync failed (" .. tostring(kind) .. ")")
+        logEvent("SYNC FAILED (" .. tostring(kind) .. ")")
     end
 end
 
@@ -129,8 +141,13 @@ RegisterWebEvent("onPlaceDividers", function(args)
     end
     local wok, werr = acapi.watch(guid, "try_dividers.lua\\onDividersWallEvent", { count = DIV_COUNT })
     if wok then
-        ExecuteJS("document.getElementById('result').textContent='Watching wall with " .. DIV_COUNT .. " dividers — move it.';")
-        SetWebResult(string.format("Placed %d x '%s', watching wall", #dividers, tostring(info)))
+        local msg = string.format("Placed %d x '%s', watching wall", #dividers, tostring(info))
+        if tostring(info):find("0 overrides") then
+            msg = msg .. " — WARNING: no param override matched! Hit Inspect Part."
+        end
+        ExecuteJS("document.getElementById('result').textContent='" .. msg:gsub("'", "") .. "';")
+        SetWebResult(msg)
+        logEvent("placed " .. #dividers .. " points")
     else
         SetWebResult("watch failed: " .. tostring(werr))
     end
@@ -206,6 +223,7 @@ button{background:#0e639c;color:#fff;border:none;padding:8px 16px;font-size:14px
 label{display:inline-block;width:130px;font-size:12px;}
 input{margin:4px 0;width:180px;}
 #result{margin-top:12px;padding:8px;background:#2d2d2d;border-radius:3px;font-size:13px;}
+#events{margin-top:8px;padding:8px;background:#252525;border-radius:3px;font-size:11px;font-family:Consolas,monospace;max-height:120px;overflow-y:auto;white-space:pre-wrap;}
 .row{margin:4px 0;}
 </style></head><body>
 <div class='row'><label>Marker part name:</label><input id='partName' type='text' value='' placeholder='exact library document name'></div>
@@ -219,7 +237,14 @@ input{margin:4px 0;width:180px;}
 <button onclick="archilua.DispatchEvent('onUnwatchDividers')">Unwatch</button>
 </div>
 <div id='result'>Enter a marker part name, then pick a wall.</div>
+<div id='events'>event log…</div>
 <script>
+var eventLines = [];
+function eventLog(line){
+    eventLines.unshift(new Date().toLocaleTimeString() + ' ' + line);
+    if(eventLines.length > 6) eventLines.pop();
+    document.getElementById('events').textContent = eventLines.join('\n');
+}
 function placeDividers(){
     var f = function(id){ return document.getElementById(id); };
     f('result').textContent = 'Click a wall in the ArchiCAD viewport...';

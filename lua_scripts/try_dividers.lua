@@ -182,7 +182,12 @@ local function refreshDividers(wallGuid)
     for _, i in ipairs(rebuildIdx) do
         acapi.delete(dividers[i].guid)
     end
-    acapi.endUndo()
+    -- endUndo is where the batch really executes: a refused nested command
+    -- surfaces here (empty-message failures), never silently.
+    local eok, eerr = acapi.endUndo()
+    if not eok then
+        return false, "endUndo flush refused: " .. tostring(eerr)
+    end
     if #rebuildIdx > 0 then
         local guids, err = acapi.createMany(dividers.libInd, rebuildPos, params)
         if not guids then

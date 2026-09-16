@@ -72,6 +72,20 @@ $(echo "$OUT" | grep -i "error:" | grep -i "$base")"
     fi
 done
 
+# Lua scripts: reject C++-style // comments (fatal Lua syntax error,
+# breaks the entire script load). Excludes http:// URLs.
+for f in $(git diff --cached --name-only --diff-filter=ACM); do
+    case "$f" in
+        *.lua) ;;
+        *) continue ;;
+    esac
+    if git show :"$f" | grep -n "//" | grep -v "http" | grep -q .; then
+        echo "[pre-commit] ERROR: C++-style // comment in $f (use -- in Lua)"
+        git show :"$f" | grep -n "//" | grep -v "http" | head -5
+        HAS_ERRORS=1
+    fi
+done
+
 if [ "$HAS_ERRORS" = "1" ]; then
     echo "[pre-commit] Commit blocked. Fix the errors above and try again."
     exit 1

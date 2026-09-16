@@ -3,7 +3,7 @@
 -- On wall Change/Edit their XY positions are recomputed from the new begC/endC.
 
 -- Bump on every script change; shown in the dialog footer to verify what's running.
-local SCRIPT_VER = "2026-09-16k"
+local SCRIPT_VER = "2026-09-16l"
 
 local watchedWall = nil
 local dividers = {} -- divider entries {guid, angle}, in wall order
@@ -247,22 +247,29 @@ local function reportSync(kind, ok, info)
         local msg = string.format("Dividers synced (%s): %d points", tostring(kind), #dividers)
         SetWebResult(msg)
         logEvent(msg)
-    elseif tostring(info):find("endUndo flush refused") then
+        return
+    end
+    -- Transient refusal (nested command refused mid-drag, incl. empty-message
+    -- outer refusals): park dirty, the heartbeat retries post-drop.
+    local low = tostring(info):lower()
+    if tostring(info):find("endUndo flush refused") or tostring(info) == "" or low:find("refus") then
         syncDirty = true
         local msg = "Sync deferred mid-drag (" .. tostring(kind) .. "), heartbeat will retry"
         SetWebResult(msg)
         logEvent(msg)
-    else
-        local msg = "Dividers sync failed (" .. tostring(kind) .. "): " .. tostring(info)
-        SetWebResult(msg)
-        logEvent(msg)
+        return
     end
+    local msg = "Dividers sync failed (" .. tostring(kind) .. "): " .. tostring(info)
+    SetWebResult(msg)
+    logEvent(msg)
 end
 
 local function handleWallSync(guid, kind)
     local wall = acapi.getWall(guid)
     local key = wall and syncKey(wall) or nil
     if key ~= nil and lastSync[guid] == key then
+        local msg = "Already in sync (" .. tostring(kind) .. "): " .. #dividers .. " points"
+        SetWebResult(msg)
         logEvent("unchanged, skipped (" .. tostring(kind) .. ")")
         return
     end
@@ -381,6 +388,11 @@ RegisterWebEvent("onToggleLog", function(args)
     SetWebResult("event logging " .. (on and "ON (see Report window)" or "OFF"))
 end)
 
+RegisterWebEvent("onToggleAuto", function(args)
+    -- Persisted silently; restored on load. No result spam on mere toggle.
+    acapi.regWrite(REG_SEC, "autoRef", (args and args.enabled) and "true" or "false")
+end)
+
 RegisterWebEvent("onRefreshDividers", function(args)
     applyFormArgs(args)
     if not watchedWall then
@@ -446,8 +458,8 @@ input{margin:4px 0;width:180px;}
 <div class='row'><label>Marker part name:</label><input id='partName' type='text' value='' placeholder='exact library document name'></div>
 <div class='row'><label>Panel B (width):</label><input id='panelB' type='text' value='' placeholder='auto = wall width' oninput='fieldEdited()'></div>
 <div class='row'><label>ZZYZX:</label><input id='panelZZ' type='number' value='0.25' step='0.05' oninput='fieldEdited()'></div>
-<div class='row'><label>Center on point:</label><input id='centerDiv' type='checkbox' onchange='fieldEdited()' title='panel midpoint (not origin) sits on the division'></div>
-<div class='row'><label>Auto-refresh:</label><input id='autoRef' type='checkbox' title='apply UI edits immediately, no Refresh button needed'></div>
+<div class='row'><label>Center on point:</label><input id='centerDiv' type='checkbox' onchange='refreshNow()' title='panel midpoint (not origin) sits on the division; applies immediately'></div>
+<div class='row'><label>Auto-refresh:</label><input id='autoRef' type='checkbox' onchange='saveAutoRef()' title='apply B/ZZYZX edits immediately, no Refresh button needed'></div>
 <div class='row'><label>Log events:</label><input id='logEvents' type='checkbox' onchange='toggleLog()' title='raw observer notifications to the Report window'></div>
 <div>
 <button onclick='placeDividers()'>Pick Wall + Place Points</button>
@@ -497,6 +509,9 @@ function inspectPart(){
 function toggleLog(){
     archilua.CallLua('onToggleLog', JSON.stringify({ enabled: document.getElementById('logEvents').checked }));
 }
+function saveAutoRef(){
+    archilua.CallLua('onToggleAuto', JSON.stringify({ enabled: document.getElementById('autoRef').checked }));
+}
 var tickTimer = null;
 function startTick(){
     if(tickTimer) return;
@@ -521,6 +536,8 @@ do
     ExecuteJS(string.format("document.getElementById('panelZZ').value='%s';", tostring(opts.zzyzx)))
     ExecuteJS(string.format("document.getElementById('centerDiv').checked=%s;",
         opts.center and "true" or "false"))
+    ExecuteJS(string.format("document.getElementById('autoRef').checked=%s;",
+        acapi.regRead(REG_SEC, "autoRef", "false") == "true" and "true" or "false"))
     ExecuteJS(string.format("document.getElementById('ver').textContent='try_dividers.lua %s';", SCRIPT_VER))
     -- Restore previous session: wall + dividers survive re-runs (the C++ watch
     -- does too), so refresh keeps working without re-placing.

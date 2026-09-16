@@ -3,7 +3,7 @@
 -- On wall Change/Edit their XY positions are recomputed from the new begC/endC.
 
 -- Bump on every script change; shown in the dialog footer to verify what's running.
-local SCRIPT_VER = "2026-09-16j"
+local SCRIPT_VER = "2026-09-16k"
 
 local watchedWall = nil
 local dividers = {} -- divider entries {guid, angle}, in wall order
@@ -230,6 +230,17 @@ end
 -- the JS heartbeat (same safe context as button clicks) performs the real sync.
 local syncDirty = false
 
+-- Last synced wall state per guid (geometry + opts). The drop fires both a
+-- flushed edit AND a change; the second run would redo identical work as its
+-- own undo step (generic set() has no change detection), so it is skipped.
+local lastSync = {}
+
+local function syncKey(wall)
+    return string.format("%.6f,%.6f,%.6f,%.6f,%s,%s,%s",
+        wall.begC.x, wall.begC.y, wall.endC.x, wall.endC.y,
+        tostring(opts.b), tostring(opts.zzyzx), tostring(opts.center))
+end
+
 local function reportSync(kind, ok, info)
     if ok then
         syncDirty = false
@@ -248,12 +259,25 @@ local function reportSync(kind, ok, info)
     end
 end
 
+local function handleWallSync(guid, kind)
+    local wall = acapi.getWall(guid)
+    local key = wall and syncKey(wall) or nil
+    if key ~= nil and lastSync[guid] == key then
+        logEvent("unchanged, skipped (" .. tostring(kind) .. ")")
+        return
+    end
+    local ok, info = refreshDividers(guid)
+    if ok and key ~= nil then
+        lastSync[guid] = key
+    end
+    reportSync(kind, ok, info)
+end
+
 function onDividersWallEvent(guid, kwargs, kind)
     if kind ~= "edit" and kind ~= "change" then
         return
     end
-    local ok, info = refreshDividers(guid)
-    reportSync(kind, ok, info)
+    handleWallSync(guid, kind)
 end
 
 -- Called by the JS heartbeat (~1Hz while watching). Same safe context as a
@@ -266,8 +290,7 @@ function onTick()
         syncDirty = false
         return
     end
-    local ok, info = refreshDividers(watchedWall)
-    reportSync("tick", ok, info)
+    handleWallSync(watchedWall, "tick")
 end
 
 RegisterWebEvent("onPlaceDividers", function(args)
@@ -303,6 +326,8 @@ RegisterWebEvent("onPlaceDividers", function(args)
     local wok, werr = acapi.watch(guid, "try_dividers.lua\\onDividersWallEvent", { count = DIV_COUNT })
     if wok then
         ExecuteJS("startTick();")
+        local w = acapi.getWall(guid)
+        if w then lastSync[guid] = syncKey(w) end
         local msg = string.format("Placed %d × '%s', watching wall", #dividers, tostring(info))
         if tostring(info):find(", 0 overrides") then
             msg = msg .. " — WARNING: no param override matched! Hit Inspect Part."
@@ -401,6 +426,7 @@ RegisterWebEvent("onUnwatchDividers", function()
         ExecuteJS("stopTick();")
         SetWebResult("Unwatched (points stay in the plan)")
         watchedWall = nil
+        lastSync = {}
         persistState()
     else
         SetWebResult("Nothing watched")

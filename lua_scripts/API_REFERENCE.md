@@ -35,9 +35,13 @@ Without begin/end, each write call creates its own undo step.
 
 `acapi.delete(guid)` — delete an element (single undo step). Returns `true` on success.
 
+`local guids = acapi.createMany(libInd, {{x, y[, angle]}, ...}, {params})` — place N objects in ONE undo step. Returns guid array.
+
+Undo batching: `beginUndo(label)` … `endUndo()` merges `set`/`setparams`/`delete` into one step (byte-wise mask merge, latest call wins; deletes replay first). `create`/`createMany` run their own command (guids needed immediately).
+
 `acapi.setParams(guid, { name = value, ... })` — set GDL parameters by name.
 
-`local libInd, name = acapi.findObject("name")` — search library part by name.
+`local libInd, name = acapi.findObject("name")` — search library part by document name. The match is verified case-insensitively; a mismatch fails loudly instead of placing the wrong part.
 
 ## Creation
 

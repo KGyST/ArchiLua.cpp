@@ -215,6 +215,24 @@ UndoState& GetUndoState()
     return us;
 }
 
+// Merge a masked change into a buffered entry. Masks are byte flags
+// (ACAPI_ELEMENT_MASK_SET writes -1 per field), so the union is byte-wise:
+// only bytes covered by the incoming mask are taken, latest call wins.
+void MergeMaskedElem(API_Element& dstElem, API_Element& dstMask,
+                     const API_Element& srcElem, const API_Element& srcMask)
+{
+    const unsigned char* sM = reinterpret_cast<const unsigned char*>(&srcMask);
+    unsigned char* dM = reinterpret_cast<unsigned char*>(&dstMask);
+    const unsigned char* sE = reinterpret_cast<const unsigned char*>(&srcElem);
+    unsigned char* dE = reinterpret_cast<unsigned char*>(&dstElem);
+    for (size_t i = 0; i < sizeof(API_Element); ++i) {
+        if (sM[i] != 0) {
+            dM[i] = 0xFF;
+            dE[i] = sE[i];
+        }
+    }
+}
+
 } // anonymous namespace
 
 bool ArchiLua::UndoIsActive()
@@ -248,8 +266,21 @@ GSErrCode ArchiLua::UndoEnd()
     us.active = false;
 
     GSErrCode err = ACAPI_CallUndoableCommand(savedLabel, [&]() -> GSErrCode {
+        GS::Array<API_Guid> toDelete;
         for (auto& pc : savedBuffer) {
-            GSErrCode e = ACAPI_Element_Change(&pc.elem, &pc.mask, pc.hasMemo ? &pc.memo : nullptr, 0, true);
+            if (pc.isDelete)
+                toDelete.Push(pc.guid);
+        }
+        if (!toDelete.IsEmpty()) {
+            GSErrCode e = ACAPI_Element_Delete(toDelete);
+            if (e != NoError)
+                return e;
+        }
+        for (auto& pc : savedBuffer) {
+            if (pc.isDelete)
+                continue;
+            GSErrCode e = ACAPI_Element_Change(&pc.elem, &pc.mask, pc.hasMemo ? &pc.memo : nullptr,
+                                               pc.hasMemo ? APIMemoMask_AddPars : 0, true);
             if (e != NoError)
                 return e;
         }
@@ -267,12 +298,49 @@ void ArchiLua::UndoBuffer(const API_Guid& guid, const API_Element& elem, const A
 {
     auto& us = GetUndoState();
     for (auto& pc : us.buffer) {
-        if (pc.guid == guid) {
-            pc.elem = elem;
-            pc.mask = mask;
-            pc.hasMemo = false;
+        if (!pc.isDelete && pc.guid == guid) {
+            MergeMaskedElem(pc.elem, pc.mask, elem, mask);
+            return; // keep any previously buffered memo
+        }
+    }
+    PendingChange pc = {};
+    pc.guid = guid;
+    pc.elem = elem;
+    pc.mask = mask;
+    us.buffer.push_back(pc);
+}
+
+void ArchiLua::UndoBufferMemo(const API_Guid& guid, const API_Element& elem, const API_Element& mask, const API_ElementMemo& memo)
+{
+    auto& us = GetUndoState();
+    for (auto& pc : us.buffer) {
+        if (!pc.isDelete && pc.guid == guid) {
+            MergeMaskedElem(pc.elem, pc.mask, elem, mask);
+            if (pc.hasMemo)
+                ACAPI_DisposeElemMemoHdls(&pc.memo);
+            pc.memo = memo;
+            pc.hasMemo = true;
             return;
         }
     }
-    us.buffer.push_back({guid, elem, mask, {}, false});
+    PendingChange pc = {};
+    pc.guid = guid;
+    pc.elem = elem;
+    pc.mask = mask;
+    pc.memo = memo;
+    pc.hasMemo = true;
+    us.buffer.push_back(pc);
+}
+
+void ArchiLua::UndoBufferDelete(const API_Guid& guid)
+{
+    auto& us = GetUndoState();
+    for (auto& pc : us.buffer) {
+        if (pc.isDelete && pc.guid == guid)
+            return; // already queued; second delete would fail the flush
+    }
+    PendingChange pc = {};
+    pc.guid = guid;
+    pc.isDelete = true;
+    us.buffer.push_back(pc);
 }

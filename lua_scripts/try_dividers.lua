@@ -30,10 +30,11 @@ local function resolvePart(name)
 end
 
 local function placeDividers(wallGuid, partName)
-    local libInd, foundOrErr = resolvePart(partName)
+    local libInd, nameOrErr = resolvePart(partName)
     if not libInd then
-        return false, foundOrErr
+        return false, nameOrErr
     end
+    local foundName = nameOrErr
     local wall = acapi.getWall(wallGuid)
     if not wall then
         return false, "getWall failed"
@@ -43,22 +44,24 @@ local function placeDividers(wallGuid, partName)
     spacing = math.sqrt(spacing) / DIV_COUNT -- panel X size tiles the wall exactly
     local params = { A = spacing, B = wall.thickness, ZZYZX = 0.25 }
     local ang = wallAngle(wall)
-    acapi.beginUndo("Place dividers")
-    dividers = {}
+    local positions = {}
     for i = 1, DIV_COUNT do
         local p = wallPoint(wall, (i - 0.5) / DIV_COUNT)
         p.angle = ang
-        local g, err = acapi.create(libInd, p, params)
-        if not g then
-            acapi.endUndo()
-            return false, err
-        end
-        table.insert(dividers, { guid = g, angle = ang })
+        positions[i] = p
     end
-    acapi.endUndo()
+    -- one undoable command for the whole row
+    local guids, err = acapi.createMany(libInd, positions, params)
+    if not guids then
+        return false, err
+    end
+    dividers = {}
+    for i, g in ipairs(guids) do
+        dividers[i] = { guid = g, angle = ang }
+    end
     -- stash for rebuilds on rotation change
     dividers.libInd = libInd
-    return true
+    return true, foundName
 end
 
 local function refreshDividers(wallGuid)
@@ -118,15 +121,15 @@ RegisterWebEvent("onPlaceDividers", function(args)
         return
     end
     watchedWall = guid
-    local ok, err = placeDividers(guid, partName)
+    local ok, info = placeDividers(guid, partName)
     if not ok then
-        SetWebResult("place failed: " .. tostring(err))
+        SetWebResult("place failed: " .. tostring(info))
         return
     end
     local wok, werr = acapi.watch(guid, "try_dividers.lua\\onDividersWallEvent", { count = DIV_COUNT })
     if wok then
-        ExecuteJS("document.getElementById('result').textContent='Watching wall with " .. DIV_COUNT .. " points — move it.';")
-        SetWebResult(string.format("Placed %d points, watching wall", #dividers))
+        ExecuteJS("document.getElementById('result').textContent='Watching wall with " .. DIV_COUNT .. " dividers — move it.';")
+        SetWebResult(string.format("Placed %d x '%s', watching wall", #dividers, tostring(info)))
     else
         SetWebResult("watch failed: " .. tostring(werr))
     end

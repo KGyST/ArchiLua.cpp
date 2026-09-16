@@ -570,6 +570,13 @@ static int DeleteElement(lua_State* L)
     }
 
     API_Guid guid = APIGuidFromString(guidStr);
+
+    if (UndoIsActive()) {
+        UndoBufferDelete(guid); // replayed with the batch; errors surface via endUndo
+        lua_pushboolean(L, true);
+        return 1;
+    }
+
     GS::Array<API_Guid> guids;
     guids.Push(guid);
 
@@ -673,20 +680,41 @@ static int SetParams(lua_State* L)
     API_Element mask;
     ACAPI_ELEMENT_MASK_CLEAR(mask);
 
-    err = ACAPI_CallUndoableCommand("Modify Parameters", [&]() -> GSErrCode {
-        return ACAPI_Element_Change(&elem, &mask, &memo, APIMemoMask_AddPars, true);
-    });
+    if (UndoIsActive()) {
+        UndoBufferMemo(guid, elem, mask, memo); // buffer owns the memo now
+    } else {
+        err = ACAPI_CallUndoableCommand("Modify Parameters", [&]() -> GSErrCode {
+            return ACAPI_Element_Change(&elem, &mask, &memo, APIMemoMask_AddPars, true);
+        });
 
-    ACAPI_DisposeElemMemoHdls(&memo);
+        ACAPI_DisposeElemMemoHdls(&memo);
 
-    if (err != NoError) {
-        lua_pushnil(L);
-        lua_pushfstring(L, "setparams failed: err=%d", (int)err);
-        return 2;
+        if (err != NoError) {
+            lua_pushnil(L);
+            lua_pushfstring(L, "setparams failed: err=%d", (int)err);
+            return 2;
+        }
     }
 
     lua_pushboolean(L, true);
     return 1;
+}
+
+static bool UniAsciiCaseEqual(const GS::UniString& a, const char* b)
+{
+    if (b == nullptr)
+        return false;
+    std::string au(a.ToCStr().Get());
+    if (au.size() != strlen(b))
+        return false;
+    for (size_t i = 0; i < au.size(); ++i) {
+        char ca = au[i], cb = b[i];
+        if (ca >= 'A' && ca <= 'Z') ca += (char)('a' - 'A');
+        if (cb >= 'A' && cb <= 'Z') cb += (char)('a' - 'A');
+        if (ca != cb)
+            return false;
+    }
+    return true;
 }
 
 static int FindObject(lua_State* L)
@@ -709,8 +737,17 @@ static int FindObject(lua_State* L)
         return 2;
     }
 
+    // Never trust the index blindly: a non-matching part here means silent
+    // wrong placements downstream (wrong geometry, skipped param overrides).
+    GS::UniString found(libPart.docu_UName);
+    if (!UniAsciiCaseEqual(found, name)) {
+        lua_pushnil(L);
+        lua_pushfstring(L, "library part mismatch: asked '%s', found '%s'", name, found.ToCStr().Get());
+        return 2;
+    }
+
     lua_pushinteger(L, libPart.index);
-    lua_pushstring(L, GS::UniString(libPart.docu_UName).ToCStr().Get());
+    lua_pushstring(L, found.ToCStr().Get());
     return 2;
 }
 
@@ -806,7 +843,13 @@ static int CreateElement(lua_State* L)
             elem.object.angle = posAngle;
 
         // Apply param overrides into the defaults memo
-        if (hasParams && memo.params != nullptr) {
+        if (hasParams && memo.params == nullptr) {
+            ACAPI_DisposeElemMemoHdls(&memo);
+            std::sprintf(errorMsg, "create: element has no params memo (overrides refused)");
+            return APIERR_GENERAL;
+        }
+        int appliedOverrides = 0;
+        if (hasParams) {
             UInt32 nParams = (UInt32)(BMGetHandleSize((GSHandle)memo.params) / sizeof(API_AddParType));
             for (UInt32 i = 0; i < nParams; ++i) {
                 API_AddParType& par = (*memo.params)[i];
@@ -815,15 +858,19 @@ static int CreateElement(lua_State* L)
 
                 lua_getfield(L, 3, par.name);
                 if (lua_isnil(L, -1)) { lua_pop(L, 1); continue; }
+                bool applied = false;
 
                 switch (par.typeID) {
                     case APIParT_Integer: case APIParT_Length:
                     case APIParT_Angle: case APIParT_RealNum: case APIParT_Intens:
-                        if (lua_isnumber(L, -1))
+                        if (lua_isnumber(L, -1)) {
                             par.value.real = lua_tonumber(L, -1);
+                            applied = true;
+                        }
                         break;
                     case APIParT_LightSw: case APIParT_Boolean:
                         par.value.real = lua_toboolean(L, -1) ? 1.0 : 0.0;
+                        applied = true;
                         break;
                     case APIParT_CString: {
                         const char* s = lua_tostring(L, -1);
@@ -831,15 +878,21 @@ static int CreateElement(lua_State* L)
                             int wlen = MultiByteToWideChar(CP_UTF8, 0, s, -1, nullptr, 0);
                             if (wlen > 0 && wlen <= API_UAddParStrLen) {
                                 MultiByteToWideChar(CP_UTF8, 0, s, -1, (LPWCH)par.value.uStr, wlen);
+                                applied = true;
                             }
                         }
                         break;
                     }
                     default: break;
                 }
+                if (applied)
+                    ++appliedOverrides;
                 lua_pop(L, 1);
             }
 
+        }
+        if (hasParams && appliedOverrides == 0) {
+            ACAPI_WriteReport("create: warning — none of the override names matched a parameter", false);
         }
 
         // Create the element (memo carries defaults + overrides)
@@ -862,6 +915,149 @@ static int CreateElement(lua_State* L)
 
     GS::UniString guidStr = APIGuidToString(createdGuid);
     lua_pushstring(L, guidStr.ToCStr().Get());
+    return 1;
+}
+
+// createMany(libInd, {posTable, ...}, [params]) — N objects in ONE undo step.
+// Returns an array of guid strings (or nil + error; already-placed items stay
+// in the model on failure — the message tells how many were placed).
+static int CreateManyElements(lua_State* L)
+{
+    if (!lua_isinteger(L, 1) || !lua_istable(L, 2)) {
+        lua_pushnil(L);
+        lua_pushstring(L, "expected libInd (integer) and position array arguments");
+        return 2;
+    }
+
+    Int32 libInd = (Int32)lua_tointeger(L, 1);
+    size_t n = lua_rawlen(L, 2);
+    if (n == 0 || n > 1000) {
+        lua_pushnil(L);
+        lua_pushstring(L, "createMany: need 1..1000 positions");
+        return 2;
+    }
+    bool hasParams = lua_istable(L, 3);
+
+    std::vector<API_Guid> placed;
+    char errorMsg[256] = {};
+
+    GSErrCode err = ACAPI_CallUndoableCommand("Create Elements", [&]() -> GSErrCode {
+        API_LibPart libPart;
+        BNZeroMemory(&libPart, sizeof(libPart));
+        libPart.index = libInd;
+        GSErrCode e = ACAPI_LibraryPart_Get(&libPart);
+        if (e != NoError) { std::sprintf(errorMsg, "LibraryPart_Get failed: err=%d", (int)e); return e; }
+        if (libPart.typeID != APILib_ObjectID) {
+            std::sprintf(errorMsg, "unsupported library part type for creation (libType=%d)", (int)libPart.typeID);
+            return APIERR_GENERAL;
+        }
+
+        int appliedOverrides = 0;
+        for (size_t i = 1; i <= n; ++i) {
+            lua_rawgeti(L, 2, (lua_Integer)i);
+            if (!lua_istable(L, -1)) {
+                lua_pop(L, 1);
+                std::sprintf(errorMsg, "createMany: position %d is not a table", (int)i);
+                return APIERR_BADPARS;
+            }
+            double x = 0, y = 0, angle = 0;
+            bool hasAngle = false;
+            lua_getfield(L, -1, "x");
+            if (lua_isnumber(L, -1)) {
+                x = lua_tonumber(L, -1);
+                lua_pop(L, 1);
+                lua_getfield(L, -1, "y");
+                if (lua_isnumber(L, -1))
+                    y = lua_tonumber(L, -1);
+                lua_pop(L, 1);
+            } else {
+                lua_pop(L, 1);
+            }
+            lua_getfield(L, -1, "angle");
+            if (lua_isnumber(L, -1)) {
+                angle = lua_tonumber(L, -1);
+                hasAngle = true;
+            }
+            lua_pop(L, 1);
+            lua_pop(L, 1); // pos table
+
+            API_Element elem;
+            BNZeroMemory(&elem, sizeof(elem));
+            elem.header.type.typeID = API_ObjectID;
+            elem.object.libInd = libInd;
+
+            API_ElementMemo memo;
+            BNZeroMemory(&memo, sizeof(memo));
+            e = ACAPI_Element_GetDefaults(&elem, &memo);
+            if (e != NoError) {
+                std::sprintf(errorMsg, "GetDefaults failed at item %d: err=%d", (int)i, (int)e);
+                return e;
+            }
+
+            elem.object.pos.x = x;
+            elem.object.pos.y = y;
+            if (hasAngle)
+                elem.object.angle = angle;
+
+            if (hasParams && memo.params == nullptr) {
+                ACAPI_DisposeElemMemoHdls(&memo);
+                std::sprintf(errorMsg, "createMany: no params memo at item %d (overrides refused)", (int)i);
+                return APIERR_GENERAL;
+            }
+            if (hasParams) {
+                UInt32 nParams = (UInt32)(BMGetHandleSize((GSHandle)memo.params) / sizeof(API_AddParType));
+                for (UInt32 k = 0; k < nParams; ++k) {
+                    API_AddParType& par = (*memo.params)[k];
+                    if (par.typeMod != API_ParSimple)
+                        continue;
+                    lua_getfield(L, 3, par.name);
+                    if (lua_isnil(L, -1)) { lua_pop(L, 1); continue; }
+                    bool applied = false;
+                    switch (par.typeID) {
+                        case APIParT_Integer: case APIParT_Length:
+                        case APIParT_Angle: case APIParT_RealNum: case APIParT_Intens:
+                            if (lua_isnumber(L, -1)) {
+                                par.value.real = lua_tonumber(L, -1);
+                                applied = true;
+                            }
+                            break;
+                        case APIParT_LightSw: case APIParT_Boolean:
+                            par.value.real = lua_toboolean(L, -1) ? 1.0 : 0.0;
+                            applied = true;
+                            break;
+                        default: break;
+                    }
+                    if (applied)
+                        ++appliedOverrides;
+                    lua_pop(L, 1);
+                }
+            }
+
+            e = ACAPI_Element_Create(&elem, &memo);
+            ACAPI_DisposeElemMemoHdls(&memo);
+            if (e != NoError) {
+                std::sprintf(errorMsg, "Element_Create failed at item %d: err=%d", (int)i, (int)e);
+                return e;
+            }
+            placed.push_back(elem.header.guid);
+        }
+        if (hasParams && appliedOverrides == 0)
+            ACAPI_WriteReport("createMany: warning — none of the override names matched a parameter", false);
+        return NoError;
+    });
+
+    if (err != NoError) {
+        lua_pushnil(L);
+        lua_pushfstring(L, "%s (placed %d of %d before failure)", errorMsg, (int)placed.size(), (int)n);
+        return 2;
+    }
+
+    lua_createtable(L, (int)placed.size(), 0);
+    for (size_t i = 0; i < placed.size(); ++i) {
+        GS::UniString guidStr = APIGuidToString(placed[i]);
+        lua_pushstring(L, guidStr.ToCStr().Get());
+        lua_rawseti(L, -2, (lua_Integer)(i + 1));
+    }
     return 1;
 }
 
@@ -2475,6 +2671,9 @@ inline void Register(lua_State* L)
 
     lua_pushcfunction(L, CreateElement);
     lua_setfield(L, -2, "create");
+
+    lua_pushcfunction(L, CreateManyElements);
+    lua_setfield(L, -2, "createMany");
 
     lua_pushcfunction(L, AddWall);
     lua_setfield(L, -2, "addWall");

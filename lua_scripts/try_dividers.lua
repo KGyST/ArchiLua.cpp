@@ -45,8 +45,8 @@ local function persistState()
 end
 
 -- Drop entries whose elements no longer exist (hand-deleted in the plan,
-// orphans from before re-place cleared). Delete batches are all-or-nothing,
-// so one stale guid would fail the whole flush with APIERR_BADID.
+-- orphans from before re-place cleared). Delete batches are all-or-nothing,
+-- so one stale guid would fail the whole flush with APIERR_BADID.
 local function pruneStale()
     local kept, dropped = {}, 0
     for _, d in ipairs(dividers) do

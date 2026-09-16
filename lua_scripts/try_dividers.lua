@@ -26,6 +26,30 @@ local function effB(wall)
     return opts.b or wall.thickness
 end
 
+-- Script globals die on every re-run while the C++ watch survives, so the
+-- wall guid, divider guids/angles, libInd and watch flag persist in registry.
+local function persistState()
+    acapi.regWrite(REG_SEC, "wall", watchedWall or "")
+    acapi.regWrite(REG_SEC, "watched", watchedWall ~= nil and "true" or "false")
+    local gs, as = {}, {}
+    for i, d in ipairs(dividers) do
+        gs[i] = d.guid
+        as[i] = string.format("%.6f", d.angle)
+    end
+    acapi.regWrite(REG_SEC, "dividers", table.concat(gs, ","))
+    acapi.regWrite(REG_SEC, "angles", table.concat(as, ","))
+    acapi.regWrite(REG_SEC, "libInd", dividers.libInd ~= nil and tostring(dividers.libInd) or "")
+end
+
+local function splitCsv(s)
+    local out = {}
+    if type(s) ~= "string" or s == "" then return out end
+    for part in s:gmatch("([^,]+)") do
+        table.insert(out, part)
+    end
+    return out
+end
+
 -- Merge form values (all optional) into opts; persists.
 local function applyFormArgs(args)
     if not args then return end
@@ -116,6 +140,7 @@ local function placeDividers(wallGuid, partName)
     end
     -- stash for rebuilds on rotation change
     dividers.libInd = libInd
+    persistState()
     return true, foundName .. " (" .. tostring(info) .. ")"
 end
 
@@ -139,22 +164,27 @@ local function refreshDividers(wallGuid)
                 { A = spacing, B = bNow, ZZYZX = zNow })
             if not g then
                 acapi.endUndo()
-                return false
+                return false, "recreate " .. i .. ": " .. tostring(err)
             end
             d.guid = g
             d.angle = newAngle
         else
-            local ok = acapi.set(d.guid, { pos = p })
+            local ok, err = acapi.set(d.guid, { pos = p })
             if not ok then
                 acapi.endUndo()
-                return false
+                return false, "set " .. i .. ": " .. tostring(err)
             end
             -- Re-apply sizes so the row keeps filling the (possibly stretched) wall
             -- and follows edited B/ZZYZX values (no-ops when unchanged)
-            acapi.setparams(d.guid, { A = spacing, B = bNow, ZZYZX = zNow })
+            local pok, perr = acapi.setparams(d.guid, { A = spacing, B = bNow, ZZYZX = zNow })
+            if not pok then
+                acapi.endUndo()
+                return false, "setparams " .. i .. ": " .. tostring(perr)
+            end
         end
     end
     acapi.endUndo()
+    persistState() -- guids may have changed on rotation rebuild
     return true
 end
 
@@ -171,13 +201,15 @@ function onDividersWallEvent(guid, kwargs, kind)
     if kind ~= "edit" and kind ~= "change" then
         return
     end
-    if refreshDividers(guid) then
+    local ok, info = refreshDividers(guid)
+    if ok then
         local msg = string.format("Dividers synced (%s): %d points", tostring(kind), #dividers)
         SetWebResult(msg)
         logEvent(msg)
     else
-        SetWebResult("Dividers sync failed (" .. tostring(kind) .. ")")
-        logEvent("SYNC FAILED (" .. tostring(kind) .. ")")
+        local msg = "Dividers sync failed (" .. tostring(kind) .. "): " .. tostring(info)
+        SetWebResult(msg)
+        logEvent(msg)
     end
 end
 
@@ -252,12 +284,13 @@ RegisterWebEvent("onRefreshDividers", function(args)
         SetWebResult("Pick a wall first!")
         return
     end
-    if refreshDividers(watchedWall) then
+    local ok, info = refreshDividers(watchedWall)
+    if ok then
         local msg = string.format("Refreshed %d points manually", #dividers)
         SetWebResult(msg)
         logEvent(msg)
     else
-        SetWebResult("Refresh failed")
+        SetWebResult("Refresh failed: " .. tostring(info))
     end
 end)
 
@@ -275,6 +308,7 @@ RegisterWebEvent("onDeleteDividers", function()
     end
     acapi.endUndo()
     dividers = {}
+    persistState()
     SetWebResult(string.format("Deleted %d dividers", n))
 end)
 
@@ -283,6 +317,7 @@ RegisterWebEvent("onUnwatchDividers", function()
         acapi.unwatch(watchedWall)
         SetWebResult("Unwatched (points stay in the plan)")
         watchedWall = nil
+        persistState()
     else
         SetWebResult("Nothing watched")
     end
@@ -354,7 +389,7 @@ function toggleLog(){
 </script></body></html>
 ]])
 
--- Restore persisted options + form values
+-- Restore persisted options + form values + previous session state
 do
     loadOpts()
     local saved = acapi.regRead(REG_SEC, "partName", "")
@@ -367,4 +402,23 @@ do
     ExecuteJS(string.format("document.getElementById('panelZZ').value='%s';", tostring(opts.zzyzx)))
     ExecuteJS(string.format("document.getElementById('centerDiv').checked=%s;",
         opts.center and "true" or "false"))
+    -- Restore previous session: wall + dividers survive re-runs (the C++ watch
+    -- does too), so refresh keeps working without re-placing.
+    local w = acapi.regRead(REG_SEC, "wall", "")
+    if type(w) == "string" and w ~= "" and acapi.getWall(w) then
+        watchedWall = w
+        local gs = splitCsv(acapi.regRead(REG_SEC, "dividers", ""))
+        local as = splitCsv(acapi.regRead(REG_SEC, "angles", ""))
+        dividers = {}
+        for i, g in ipairs(gs) do
+            dividers[i] = { guid = g, angle = tonumber(as[i]) or 0 }
+        end
+        dividers.libInd = tonumber(acapi.regRead(REG_SEC, "libInd", ""))
+        if acapi.regRead(REG_SEC, "watched", "false") == "true" and #dividers > 0 then
+            acapi.watch(w, "try_dividers.lua\\onDividersWallEvent", { count = DIV_COUNT })
+            logEvent("restored " .. #dividers .. " dividers, watching")
+        elseif #dividers > 0 then
+            logEvent("restored " .. #dividers .. " dividers (not watching)")
+        end
+    end
 end

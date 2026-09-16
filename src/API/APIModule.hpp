@@ -1161,6 +1161,274 @@ static int CreateManyElements(lua_State* L)
     return 2;
 }
 
+// syncRow({moves={{guid,x,y}...}, del={guid...}, libInd, creates={{x,y,angle}...}, params={...}})
+// Whole row re-sync in ONE undoable command: moves (Change pos + params),
+// deletes (one call), creates (Create + post-Change params).
+// Returns {moved=N, created={guids}} + info string, or (nil, err).
+static int SyncRow(lua_State* L)
+{
+    if (!lua_istable(L, 1)) {
+        lua_pushnil(L);
+        lua_pushstring(L, "expected a spec table argument");
+        return 2;
+    }
+
+    struct MoveItem { std::string guid; double x, y; };
+    struct NewItem { double x, y, angle; bool hasAngle; };
+    std::vector<MoveItem> moves;
+    std::vector<std::string> dels;
+    std::vector<NewItem> news;
+    Int32 libInd = 0;
+
+    lua_getfield(L, 1, "moves");
+    if (lua_istable(L, -1)) {
+        size_t n = lua_rawlen(L, -1);
+        for (size_t i = 1; i <= n; ++i) {
+            lua_rawgeti(L, -1, (lua_Integer)i);
+            if (lua_istable(L, -1)) {
+                MoveItem m;
+                lua_getfield(L, -1, "guid");
+                m.guid = lua_tostring(L, -1) ? lua_tostring(L, -1) : "";
+                lua_pop(L, 1);
+                lua_getfield(L, -1, "x");
+                m.x = lua_isnumber(L, -1) ? lua_tonumber(L, -1) : 0;
+                lua_pop(L, 1);
+                lua_getfield(L, -1, "y");
+                m.y = lua_isnumber(L, -1) ? lua_tonumber(L, -1) : 0;
+                lua_pop(L, 1);
+                if (!m.guid.empty())
+                    moves.push_back(m);
+            }
+            lua_pop(L, 1);
+        }
+    }
+    lua_pop(L, 1);
+
+    lua_getfield(L, 1, "del");
+    if (lua_istable(L, -1)) {
+        size_t n = lua_rawlen(L, -1);
+        for (size_t i = 1; i <= n; ++i) {
+            lua_rawgeti(L, -1, (lua_Integer)i);
+            if (lua_isstring(L, -1))
+                dels.push_back(lua_tostring(L, -1));
+            lua_pop(L, 1);
+        }
+    }
+    lua_pop(L, 1);
+
+    lua_getfield(L, 1, "libInd");
+    if (lua_isinteger(L, -1))
+        libInd = (Int32)lua_tointeger(L, -1);
+    lua_pop(L, 1);
+
+    lua_getfield(L, 1, "creates");
+    if (lua_istable(L, -1)) {
+        size_t n = lua_rawlen(L, -1);
+        for (size_t i = 1; i <= n; ++i) {
+            lua_rawgeti(L, -1, (lua_Integer)i);
+            if (lua_istable(L, -1)) {
+                NewItem it = {};
+                lua_getfield(L, -1, "x");
+                if (lua_isnumber(L, -1)) {
+                    it.x = lua_tonumber(L, -1);
+                    lua_pop(L, 1);
+                    lua_getfield(L, -1, "y");
+                    if (lua_isnumber(L, -1))
+                        it.y = lua_tonumber(L, -1);
+                    lua_pop(L, 1);
+                } else {
+                    lua_pop(L, 1);
+                }
+                lua_getfield(L, -1, "angle");
+                if (lua_isnumber(L, -1)) {
+                    it.angle = lua_tonumber(L, -1);
+                    it.hasAngle = true;
+                }
+                lua_pop(L, 1);
+                news.push_back(it);
+            }
+            lua_pop(L, 1);
+        }
+    }
+    lua_pop(L, 1);
+
+    lua_getfield(L, 1, "params");
+    bool hasParams = lua_istable(L, -1);
+    int paramsIdx = 0;
+    if (hasParams)
+        paramsIdx = lua_absindex(L, -1);
+    else
+        lua_pop(L, 1);
+
+    if (moves.empty() && dels.empty() && news.empty()) {
+        if (hasParams)
+            lua_pop(L, 1);
+        lua_createtable(L, 0, 2);
+        lua_pushinteger(L, 0);
+        lua_setfield(L, -2, "moved");
+        lua_newtable(L);
+        lua_setfield(L, -2, "created");
+        lua_pushstring(L, "nothing to do");
+        return 2;
+    }
+
+    char errorMsg[256] = {};
+    int moved = 0;
+    int appliedOverrides = 0;
+    std::vector<API_Guid> created;
+
+    GSErrCode err = ACAPI_CallUndoableCommand("Sync Row", [&]() -> GSErrCode {
+        // 1. Moves: Change pos (+ params memo when given).
+        for (const MoveItem& m : moves) {
+            API_Guid guid = APIGuidFromString(m.guid.c_str());
+            API_Element elem;
+            BNZeroMemory(&elem, sizeof(elem));
+            elem.header.guid = guid;
+            GSErrCode e = ACAPI_Element_Get(&elem);
+            if (e != NoError) { std::sprintf(errorMsg, "sync move Get failed: err=%d", (int)e); return e; }
+            if (elem.header.type.typeID != API_ObjectID) {
+                std::sprintf(errorMsg, "sync move: not an object");
+                return APIERR_GENERAL;
+            }
+            elem.object.pos.x = m.x;
+            elem.object.pos.y = m.y;
+            API_Element mask;
+            ACAPI_ELEMENT_MASK_CLEAR(mask);
+            ACAPI_ELEMENT_MASK_SET(mask, API_ObjectType, pos);
+            API_ElementMemo memo;
+            BNZeroMemory(&memo, sizeof(memo));
+            bool useMemo = false;
+            if (hasParams) {
+                e = ACAPI_Element_GetMemo(guid, &memo, APIMemoMask_AddPars);
+                if (e == NoError && memo.params != nullptr) {
+                    appliedOverrides += ApplyParamOverrides(L, paramsIdx, memo);
+                    useMemo = true;
+                }
+            }
+            e = ACAPI_Element_Change(&elem, &mask, useMemo ? &memo : nullptr, useMemo ? APIMemoMask_AddPars : 0, true);
+            if (useMemo)
+                ACAPI_DisposeElemMemoHdls(&memo);
+            if (e != NoError) { std::sprintf(errorMsg, "sync move failed: err=%d", (int)e); return e; }
+            ++moved;
+        }
+
+        // 2. Deletes: one call for all.
+        if (!dels.empty()) {
+            GS::Array<API_Guid> arr;
+            for (const std::string& g : dels)
+                arr.Push(APIGuidFromString(g.c_str()));
+            GSErrCode e = ACAPI_Element_Delete(arr);
+            if (e != NoError) { std::sprintf(errorMsg, "sync delete failed: err=%d", (int)e); return e; }
+        }
+
+        // 3. Creates (+ post-Change params, the proven path).
+        API_LibPart libPart;
+        bool libChecked = false;
+        for (size_t i = 0; i < news.size(); ++i) {
+            if (!libChecked) {
+                BNZeroMemory(&libPart, sizeof(libPart));
+                libPart.index = libInd;
+                GSErrCode e = ACAPI_LibraryPart_Get(&libPart);
+                if (e != NoError) { std::sprintf(errorMsg, "LibraryPart_Get failed: err=%d", (int)e); return e; }
+                if (libPart.typeID != APILib_ObjectID) {
+                    std::sprintf(errorMsg, "unsupported library part type (libType=%d)", (int)libPart.typeID);
+                    return APIERR_GENERAL;
+                }
+                libChecked = true;
+            }
+            const NewItem& it = news[i];
+            API_Element elem;
+            BNZeroMemory(&elem, sizeof(elem));
+            elem.header.type.typeID = API_ObjectID;
+            elem.object.libInd = libInd;
+
+            API_ElementMemo memo;
+            BNZeroMemory(&memo, sizeof(memo));
+            GSErrCode e = ACAPI_Element_GetDefaults(&elem, &memo);
+            if (e != NoError) {
+                std::sprintf(errorMsg, "GetDefaults failed at new item %d: err=%d", (int)i + 1, (int)e);
+                return e;
+            }
+
+            elem.object.pos.x = it.x;
+            elem.object.pos.y = it.y;
+            if (it.hasAngle)
+                elem.object.angle = it.angle;
+            elem.object.libInd = libInd;
+            if (elem.header.floorInd == 0)
+                elem.header.floorInd = CurrentStory();
+
+            e = ACAPI_Element_Create(&elem, &memo);
+            ACAPI_DisposeElemMemoHdls(&memo);
+            if (e != NoError) {
+                std::sprintf(errorMsg, "Element_Create failed at new item %d: err=%d (libInd=%d floor=%d)",
+                             (int)i + 1, (int)e, (int)libInd, (int)elem.header.floorInd);
+                return e;
+            }
+
+            API_Element placedElem;
+            BNZeroMemory(&placedElem, sizeof(placedElem));
+            placedElem.header.guid = elem.header.guid;
+            e = ACAPI_Element_Get(&placedElem);
+            if (e != NoError) {
+                std::sprintf(errorMsg, "post-create Get failed at new item %d: err=%d", (int)i + 1, (int)e);
+                return e;
+            }
+            if (placedElem.header.type.typeID == API_ObjectID &&
+                placedElem.object.libInd != libInd) {
+                std::sprintf(errorMsg, "new item %d placed wrong part: wanted %d, got %d",
+                             (int)i + 1, (int)libInd, (int)placedElem.object.libInd);
+                return APIERR_GENERAL;
+            }
+
+            if (hasParams) {
+                API_ElementMemo memo2;
+                BNZeroMemory(&memo2, sizeof(memo2));
+                e = ACAPI_Element_GetMemo(elem.header.guid, &memo2, APIMemoMask_AddPars);
+                if (e != NoError || memo2.params == nullptr) {
+                    if (e == NoError)
+                        ACAPI_DisposeElemMemoHdls(&memo2);
+                    std::sprintf(errorMsg, "no params memo at new item %d", (int)i + 1);
+                    return APIERR_GENERAL;
+                }
+                appliedOverrides += ApplyParamOverrides(L, paramsIdx, memo2);
+                API_Element mask2;
+                ACAPI_ELEMENT_MASK_CLEAR(mask2);
+                e = ACAPI_Element_Change(&placedElem, &mask2, &memo2, APIMemoMask_AddPars, true);
+                ACAPI_DisposeElemMemoHdls(&memo2);
+                if (e != NoError) {
+                    std::sprintf(errorMsg, "param change failed at new item %d: err=%d", (int)i + 1, (int)e);
+                    return e;
+                }
+            }
+            created.push_back(elem.header.guid);
+        }
+        return NoError;
+    });
+
+    if (hasParams)
+        lua_pop(L, 1); // params table kept for the whole command
+
+    if (err != NoError) {
+        lua_pushnil(L);
+        lua_pushstring(L, errorMsg);
+        return 2;
+    }
+
+    lua_createtable(L, 0, 2);
+    lua_pushinteger(L, moved);
+    lua_setfield(L, -2, "moved");
+    lua_createtable(L, (int)created.size(), 0);
+    for (size_t i = 0; i < created.size(); ++i) {
+        GS::UniString guidStr = APIGuidToString(created[i]);
+        lua_pushstring(L, guidStr.ToCStr().Get());
+        lua_rawseti(L, -2, (lua_Integer)(i + 1));
+    }
+    lua_setfield(L, -2, "created");
+    lua_pushfstring(L, "moved %d, created %d, %d overrides", moved, (int)created.size(), appliedOverrides);
+    return 2;
+}
+
 // listParams(libInd) — diagnostic: array of {name, typeID, typeMod, value}
 // for every parameter of the part. typeMod: 0=simple, 2=array.
 static int ListParams(lua_State* L)
@@ -2840,6 +3108,9 @@ inline void Register(lua_State* L)
 
     lua_pushcfunction(L, CreateManyElements);
     lua_setfield(L, -2, "createMany");
+
+    lua_pushcfunction(L, SyncRow);
+    lua_setfield(L, -2, "syncRow");
 
     lua_pushcfunction(L, ListParams);
     lua_setfield(L, -2, "listParams");

@@ -3,7 +3,7 @@
 -- On wall Change/Edit their XY positions are recomputed from the new begC/endC.
 
 -- Bump on every script change; shown in the dialog footer to verify what's running.
-local SCRIPT_VER = "2026-09-16i"
+local SCRIPT_VER = "2026-09-16j"
 
 local watchedWall = nil
 local dividers = {} -- divider entries {guid, angle}, in wall order
@@ -188,47 +188,28 @@ local function refreshDividers(wallGuid)
     local newAngle = wallAngle(wall)
     local params = { A = spacing, B = effB(wall), ZZYZX = opts.zzyzx }
     -- Partition: moves apply in place, direction changes need a rebuild
-    -- (angle is not Change-editable). All rebuilds go through ONE createMany,
-    -- so even a full rotation re-sync costs 2 undo steps, not 20.
-    local rebuildIdx, rebuildPos = {}, {}
-    acapi.beginUndo("Sync dividers")
+    -- (angle is not Change-editable). One syncRow call does moves + deletes
+    -- + creates in a SINGLE undoable command (1 undo step total).
+    local moves, dels, creates, createIdx = {}, {}, {}, {}
     for i, d in ipairs(dividers) do
+        local p = divPoint(wall, spacing, newAngle, i)
         if math.abs(newAngle - d.angle) > 1e-6 then
-            table.insert(rebuildIdx, i)
-            rebuildPos[#rebuildPos + 1] = divPoint(wall, spacing, newAngle, i)
+            table.insert(dels, d.guid)
+            table.insert(creates, p)
+            table.insert(createIdx, i)
         else
-            local p = divPoint(wall, spacing, newAngle, i)
-            local ok, err = acapi.set(d.guid, { pos = p })
-            if not ok then
-                acapi.endUndo()
-                return false, "set " .. i .. ": " .. tostring(err)
-            end
-            -- Re-apply sizes so the row keeps filling the (possibly stretched) wall
-            -- and follows edited B/ZZYZX values (no-ops when unchanged)
-            local pok, perr = acapi.setParams(d.guid, params)
-            if not pok then
-                acapi.endUndo()
-                return false, "setparams " .. i .. ": " .. tostring(perr)
-            end
+            table.insert(moves, { guid = d.guid, x = p.x, y = p.y })
         end
     end
-    for _, i in ipairs(rebuildIdx) do
-        acapi.delete(dividers[i].guid)
+    local res, err = acapi.syncRow({
+        moves = moves, del = dels, libInd = dividers.libInd,
+        creates = creates, params = params
+    })
+    if not res then
+        return false, tostring(err)
     end
-    -- endUndo is where the batch really executes: a refused nested command
-    -- surfaces here (empty-message failures), never silently.
-    local eok, eerr = acapi.endUndo()
-    if not eok then
-        return false, "endUndo flush refused: " .. tostring(eerr)
-    end
-    if #rebuildIdx > 0 then
-        local guids, err = acapi.createMany(dividers.libInd, rebuildPos, params)
-        if not guids then
-            return false, "recreate: " .. tostring(err)
-        end
-        for k, i in ipairs(rebuildIdx) do
-            dividers[i] = { guid = guids[k], angle = newAngle }
-        end
+    for k, i in ipairs(createIdx) do
+        dividers[i] = { guid = res.created[k], angle = newAngle }
     end
     persistState() -- guids may have changed on rotation rebuild
     return true

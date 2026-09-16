@@ -176,7 +176,7 @@ local function refreshDividers(wallGuid)
             end
             -- Re-apply sizes so the row keeps filling the (possibly stretched) wall
             -- and follows edited B/ZZYZX values (no-ops when unchanged)
-            local pok, perr = acapi.setparams(d.guid, { A = spacing, B = bNow, ZZYZX = zNow })
+            local pok, perr = acapi.setParams(d.guid, { A = spacing, B = bNow, ZZYZX = zNow })
             if not pok then
                 acapi.endUndo()
                 return false, "setparams " .. i .. ": " .. tostring(perr)
@@ -229,7 +229,7 @@ RegisterWebEvent("onPlaceDividers", function(args)
     end
     local wok, werr = acapi.watch(guid, "try_dividers.lua\\onDividersWallEvent", { count = DIV_COUNT })
     if wok then
-        local msg = string.format("Placed %d x '%s', watching wall", #dividers, tostring(info))
+        local msg = string.format("Placed %d × '%s', watching wall", #dividers, tostring(info))
         if tostring(info):find(", 0 overrides") then
             msg = msg .. " — WARNING: no param override matched! Hit Inspect Part."
         end

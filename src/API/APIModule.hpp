@@ -593,6 +593,20 @@ static int DeleteElement(lua_State* L)
     return 1;
 }
 
+// Current story index; objects are placed here. GetDefaults may leave
+// floorInd at 0, which Element_Create rejects on some setups (BADPARS).
+static short CurrentStory()
+{
+    API_StoryInfo storyInfo;
+    BNZeroMemory(&storyInfo, sizeof(storyInfo));
+    if (ACAPI_ProjectSetting_GetStorySettings(&storyInfo) != NoError)
+        return 1;
+    short floor = (short)storyInfo.actStory;
+    if (storyInfo.data != nullptr)
+        BMKillHandle((GSHandle*)&storyInfo.data);
+    return floor;
+}
+
 // Applies a Lua params table (at paramsIdx) onto a params memo.
 // Returns the number of parameters actually written.
 static int ApplyParamOverrides(lua_State* L, int paramsIdx, API_ElementMemo& memo)
@@ -846,6 +860,8 @@ static int CreateElement(lua_State* L)
 
         // NOTE: overrides are applied post-create via Change (Create ignores
         // memo params for objects). The memo here carries defaults only.
+        if (elem.header.floorInd == 0)
+            elem.header.floorInd = CurrentStory();
 
         // Re-assert libInd: GetDefaults may reset it to the default part.
         elem.object.libInd = libInd;
@@ -1013,6 +1029,8 @@ static int CreateManyElements(lua_State* L)
 
             // Re-assert libInd: GetDefaults may reset it to the default part.
             elem.object.libInd = libInd;
+            if (elem.header.floorInd == 0)
+                elem.header.floorInd = CurrentStory();
 
             e = ACAPI_Element_Create(&elem, &memo);
             if (e == APIERR_BADPARS) {

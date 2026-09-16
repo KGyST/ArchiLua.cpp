@@ -761,6 +761,19 @@ static int FindObject(lua_State* L)
         return 2;
     }
 
+    // A template or non-placeable part can never be instantiated via Create
+    // (fails later with cryptic BADPARS) — fail loudly here instead.
+    if (libPart.isTemplate) {
+        lua_pushnil(L);
+        lua_pushfstring(L, "library part '%s' is a template, not placeable", found.ToCStr().Get());
+        return 2;
+    }
+    if (!libPart.isPlaceable) {
+        lua_pushnil(L);
+        lua_pushfstring(L, "library part '%s' is marked non-placeable", found.ToCStr().Get());
+        return 2;
+    }
+
     lua_pushinteger(L, libPart.index);
     lua_pushstring(L, found.ToCStr().Get());
     return 2;

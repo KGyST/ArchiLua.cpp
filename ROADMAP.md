@@ -78,7 +78,8 @@
 - [ ] **Divider Demo (`try_dividers.lua`):**
   - Place 10 standalone divider panels (library objects on the wall centerline) on a picked wall, watch it, recompute XY from `begC`/`endC` and move them via `acapi.set(pos)` on wall `edit`/`change`. Panel part name is user-configurable (persisted in registry); panels removable via `acapi.delete`.
   - Brick-laying params on place: `A` = division spacing (tiles the wall), `B` = wall thickness, `ZZYZX` = 0.25; `A` re-tiled via `setparams` on sync. Panel rotation follows the wall vector (`angle` on create); wall direction change deletes + recreates (`angle` is not `Change`-editable per DevKit).
-  - `findObject` verifies the match (case-insensitive) — a wrong part fails loudly instead of placing index-1 defaults; `create` warns when zero overrides apply.
+  - `findObject` verifies the match (case-insensitive) and rejects template/non-placeable parts loudly (e.g. `m_Viapanel_Wallpanel` fails `Create` with `BADPARS` — presumed non-placeable); `create` warns when zero overrides apply.
+  - Deferred: center objects on division points (currently the object origin, i.e. left corner, sits on the point).
   - Undo: `createMany` places the row in one step; `begin/endUndo` batch `set`/`setparams`/`delete` (mask-merged, deletes-first replay).
   - Needs: `acapi.set` `pos` support for objects + `acapi.delete` (done); `acapi.create` lib-type→element-type mapping fixed — `libPart.typeID` is `API_LibTypeID`, never cast to `API_ElemTypeID` (done); `ShowWebDialog` replaces the previous script's GUI instead of showing stale content (done).
 

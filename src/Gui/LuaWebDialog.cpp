@@ -62,9 +62,21 @@ static int L_SetWebResult(lua_State* L)
     auto& bridge = GetBridge();
     auto* dlg = static_cast<LuaWebDialog*>(bridge.GetDialog());
     if (dlg) {
-        char buf[512];
-        sprintf_s(buf, "document.getElementById('result').textContent='%s';", text);
-        dlg->ExecuteJS(GS::UniString(buf));
+        // Escape for single-quoted JS string (unescaped quotes/newlines
+        // silently break the snippet and nothing updates).
+        std::string safe;
+        for (const char* p = text; *p; ++p) {
+            if (*p == '\\' || *p == '\'')
+                safe += '\\';
+            if (*p == '\n' || *p == '\r')
+                safe += ' ';
+            else
+                safe += *p;
+        }
+        if (safe.size() > 400)
+            safe.resize(400);
+        std::string js = "document.getElementById('result').textContent='" + safe + "';";
+        dlg->ExecuteJS(GS::UniString(js.c_str()));
     }
     return 0;
 }

@@ -593,6 +593,53 @@ static int DeleteElement(lua_State* L)
     return 1;
 }
 
+// Applies a Lua params table (at paramsIdx) onto a params memo.
+// Returns the number of parameters actually written.
+static int ApplyParamOverrides(lua_State* L, int paramsIdx, API_ElementMemo& memo)
+{
+    int applied = 0;
+    if (memo.params == nullptr)
+        return 0;
+    UInt32 nParams = (UInt32)(BMGetHandleSize((GSHandle)memo.params) / sizeof(API_AddParType));
+    for (UInt32 i = 0; i < nParams; ++i) {
+        API_AddParType& par = (*memo.params)[i];
+        if (par.typeMod != API_ParSimple)
+            continue;
+        lua_getfield(L, paramsIdx, par.name);
+        if (lua_isnil(L, -1)) { lua_pop(L, 1); continue; }
+        bool wrote = false;
+        switch (par.typeID) {
+            case APIParT_Integer: case APIParT_Length:
+            case APIParT_Angle: case APIParT_RealNum: case APIParT_Intens:
+                if (lua_isnumber(L, -1)) {
+                    par.value.real = lua_tonumber(L, -1);
+                    wrote = true;
+                }
+                break;
+            case APIParT_LightSw: case APIParT_Boolean:
+                par.value.real = lua_toboolean(L, -1) ? 1.0 : 0.0;
+                wrote = true;
+                break;
+            case APIParT_CString: {
+                const char* s = lua_tostring(L, -1);
+                if (s) {
+                    int wlen = MultiByteToWideChar(CP_UTF8, 0, s, -1, nullptr, 0);
+                    if (wlen > 0 && wlen <= API_UAddParStrLen) {
+                        MultiByteToWideChar(CP_UTF8, 0, s, -1, (LPWCH)par.value.uStr, wlen);
+                        wrote = true;
+                    }
+                }
+                break;
+            }
+            default: break;
+        }
+        if (wrote)
+            ++applied;
+        lua_pop(L, 1);
+    }
+    return applied;
+}
+
 static int SetParams(lua_State* L)
 {
     const char* guidStr = lua_tostring(L, 1);
@@ -623,53 +670,7 @@ static int SetParams(lua_State* L)
         return 2;
     }
 
-    UInt32 nParams = (UInt32)(BMGetHandleSize((GSHandle)memo.params) / sizeof(API_AddParType));
-    bool anyChanged = false;
-
-    for (UInt32 i = 0; i < nParams; ++i) {
-        API_AddParType& par = (*memo.params)[i];
-        if (par.typeMod != API_ParSimple)
-            continue;
-
-        lua_getfield(L, 2, par.name);
-        if (lua_isnil(L, -1)) {
-            lua_pop(L, 1);
-            continue;
-        }
-
-        switch (par.typeID) {
-            case APIParT_Integer:
-            case APIParT_Length:
-            case APIParT_Angle:
-            case APIParT_RealNum:
-            case APIParT_Intens:
-                if (lua_isnumber(L, -1)) {
-                    par.value.real = lua_tonumber(L, -1);
-                    anyChanged = true;
-                }
-                break;
-            case APIParT_LightSw:
-            case APIParT_Boolean:
-                par.value.real = lua_toboolean(L, -1) ? 1.0 : 0.0;
-                anyChanged = true;
-                break;
-            case APIParT_CString:
-            {
-                const char* s = lua_tostring(L, -1);
-                if (s) {
-                    int wlen = MultiByteToWideChar(CP_UTF8, 0, s, -1, nullptr, 0);
-                    if (wlen > 0 && wlen <= API_UAddParStrLen) {
-                        MultiByteToWideChar(CP_UTF8, 0, s, -1, (LPWCH)par.value.uStr, wlen);
-                        anyChanged = true;
-                    }
-                }
-                break;
-            }
-            default:
-                break;
-        }
-        lua_pop(L, 1);
-    }
+    bool anyChanged = ApplyParamOverrides(L, 2, memo) > 0;
 
     if (!anyChanged) {
         ACAPI_DisposeElemMemoHdls(&memo);

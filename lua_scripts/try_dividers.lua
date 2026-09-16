@@ -177,6 +177,12 @@ RegisterWebEvent("onInspectPart", function(args)
         tostring(found), #pars, table.concat(hits, " | ")))
 end)
 
+RegisterWebEvent("onToggleLog", function(args)
+    local on = args and args.enabled
+    acapi.observerLog(on)
+    SetWebResult("event logging " .. (on and "ON (see Report window)" or "OFF"))
+end)
+
 RegisterWebEvent("onRefreshDividers", function()
     if not watchedWall then
         SetWebResult("Pick a wall first!")
@@ -227,6 +233,7 @@ input{margin:4px 0;width:180px;}
 .row{margin:4px 0;}
 </style></head><body>
 <div class='row'><label>Marker part name:</label><input id='partName' type='text' value='' placeholder='exact library document name'></div>
+<div class='row'><label>Log events:</label><input id='logEvents' type='checkbox' onchange='toggleLog()' title='raw observer notifications to the Report window'></div>
 <div>
 <button onclick='placeDividers()'>Pick Wall + Place Points</button>
 <button onclick='inspectPart()'>Inspect Part</button>
@@ -253,6 +260,9 @@ function placeDividers(){
 function inspectPart(){
     var f = function(id){ return document.getElementById(id); };
     archilua.CallLua('onInspectPart', JSON.stringify({ partName: f('partName').value }));
+}
+function toggleLog(){
+    archilua.CallLua('onToggleLog', JSON.stringify({ enabled: document.getElementById('logEvents').checked }));
 }
 </script></body></html>
 ]])

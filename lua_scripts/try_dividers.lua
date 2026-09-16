@@ -3,7 +3,7 @@
 -- On wall Change/Edit their XY positions are recomputed from the new begC/endC.
 
 -- Bump on every script change; shown in the dialog footer to verify what's running.
-local SCRIPT_VER = "2026-09-16m"
+local SCRIPT_VER = "2026-09-16n"
 
 local watchedWall = nil
 local dividers = {} -- divider entries {guid, angle}, in wall order
@@ -578,4 +578,6 @@ do
             logEvent("restored " .. #dividers .. " dividers (not watching)")
         end
     end
+    -- Last log call = top line of the event panel: always shows what's running.
+    logEvent("try_dividers.lua " .. SCRIPT_VER .. " loaded")
 end

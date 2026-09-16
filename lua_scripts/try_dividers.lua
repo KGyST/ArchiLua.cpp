@@ -2,6 +2,9 @@
 -- Dividers are independent library objects on the wall centerline (visible 2D plan points).
 -- On wall Change/Edit their XY positions are recomputed from the new begC/endC.
 
+-- Bump on every script change; shown in the dialog footer to verify what's running.
+local SCRIPT_VER = "2026-09-16e"
+
 local watchedWall = nil
 local dividers = {} -- divider entries {guid, angle}, in wall order
 local DIV_COUNT = 10
@@ -210,13 +213,23 @@ local function logEvent(text)
         eventLogCount, text:gsub("'", "")))
 end
 
+-- Set when a sync is refused mid-drag (APIERR_REFUSEDCMD on the nested undo
+-- command); the next event (drop/EndEvents) retries and normally succeeds.
+local syncDirty = false
+
 function onDividersWallEvent(guid, kwargs, kind)
     if kind ~= "edit" and kind ~= "change" then
         return
     end
     local ok, info = refreshDividers(guid)
     if ok then
+        syncDirty = false
         local msg = string.format("Dividers synced (%s): %d points", tostring(kind), #dividers)
+        SetWebResult(msg)
+        logEvent(msg)
+    elseif tostring(info):find("endUndo flush refused") then
+        syncDirty = true -- drag still open; stay quiet-ish, the next event retries
+        local msg = "Sync deferred mid-drag (" .. tostring(kind) .. "), will retry"
         SetWebResult(msg)
         logEvent(msg)
     else
@@ -363,6 +376,7 @@ input{margin:4px 0;width:180px;}
 </div>
 <div id='result'>Enter a marker part name, then pick a wall.</div>
 <div id='events'>event log…</div>
+<div id='ver' style='margin-top:8px;font-size:10px;color:#777;'></div>
 <script>
 var eventLines = [];
 function eventLog(line){
@@ -415,6 +429,7 @@ do
     ExecuteJS(string.format("document.getElementById('panelZZ').value='%s';", tostring(opts.zzyzx)))
     ExecuteJS(string.format("document.getElementById('centerDiv').checked=%s;",
         opts.center and "true" or "false"))
+    ExecuteJS(string.format("document.getElementById('ver').textContent='try_dividers.lua %s';", SCRIPT_VER))
     -- Restore previous session: wall + dividers survive re-runs (the C++ watch
     -- does too), so refresh keeps working without re-placing.
     local w = acapi.regRead(REG_SEC, "wall", "")

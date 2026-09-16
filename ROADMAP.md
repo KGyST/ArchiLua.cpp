@@ -84,6 +84,7 @@
   - `findObject` verifies the match (case-insensitive) and rejects template/non-placeable parts loudly (e.g. `m_Viapanel_Wallpanel` fails `Create` with `BADPARS` — presumed non-placeable, flags confirmation pending); `create`/`createMany` report override counts and warn on zero matches.
   - API names are case-sensitive: script/DOC/register audit done, single mismatch (`setparams` → `setParams`) fixed.
   - Undo: `createMany` places the row in one step; `begin/endUndo` batch `set`/`setParams`/`delete` (mask-merged, deletes-first replay).
+  - [ ] **Undo scope:** wall move + divider sync in ONE undo unit. Currently separate steps (the API cannot join ArchiCAD's open drag operation — nested undoable commands are refused mid-drag with `APIERR_REFUSEDCMD`, so mid-drag syncs defer and retry on the next event).
   - Needs: `acapi.set` `pos` support for objects + `acapi.delete` (done); `acapi.create` lib-type→element-type mapping fixed — `libPart.typeID` is `API_LibTypeID`, never cast to `API_ElemTypeID` (done); `ShowWebDialog` replaces the previous script's GUI instead of showing stale content (done).
 
 - [ ] **Observer Polish / Finalize (deferred):**

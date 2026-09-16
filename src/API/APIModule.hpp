@@ -801,6 +801,7 @@ static int CreateElement(lua_State* L)
 
     API_Guid createdGuid = APINULLGuid;
     char errorMsg[256];
+    int appliedOverrides = 0;
 
     GSErrCode err = ACAPI_CallUndoableCommand("Create Element", [&]() -> GSErrCode {
         API_Element elem;
@@ -848,7 +849,6 @@ static int CreateElement(lua_State* L)
             std::sprintf(errorMsg, "create: element has no params memo (overrides refused)");
             return APIERR_GENERAL;
         }
-        int appliedOverrides = 0;
         if (hasParams) {
             UInt32 nParams = (UInt32)(BMGetHandleSize((GSHandle)memo.params) / sizeof(API_AddParType));
             for (UInt32 i = 0; i < nParams; ++i) {
@@ -915,7 +915,8 @@ static int CreateElement(lua_State* L)
 
     GS::UniString guidStr = APIGuidToString(createdGuid);
     lua_pushstring(L, guidStr.ToCStr().Get());
-    return 1;
+    lua_pushfstring(L, "%d overrides applied", appliedOverrides);
+    return 2;
 }
 
 // createMany(libInd, {posTable, ...}, [params]) — N objects in ONE undo step.
@@ -940,6 +941,7 @@ static int CreateManyElements(lua_State* L)
 
     std::vector<API_Guid> placed;
     char errorMsg[256] = {};
+    int appliedOverrides = 0;
 
     GSErrCode err = ACAPI_CallUndoableCommand("Create Elements", [&]() -> GSErrCode {
         API_LibPart libPart;
@@ -952,7 +954,6 @@ static int CreateManyElements(lua_State* L)
             return APIERR_GENERAL;
         }
 
-        int appliedOverrides = 0;
         for (size_t i = 1; i <= n; ++i) {
             lua_rawgeti(L, 2, (lua_Integer)i);
             if (!lua_istable(L, -1)) {
@@ -1058,6 +1059,70 @@ static int CreateManyElements(lua_State* L)
         lua_pushstring(L, guidStr.ToCStr().Get());
         lua_rawseti(L, -2, (lua_Integer)(i + 1));
     }
+    lua_pushfstring(L, "%d placed, %d overrides applied", (int)placed.size(), appliedOverrides);
+    return 2;
+}
+
+// listParams(libInd) — diagnostic: array of {name, typeID, typeMod, value}
+// for every parameter of the part. typeMod: 0=simple, 2=array.
+static int ListParams(lua_State* L)
+{
+    if (!lua_isinteger(L, 1)) {
+        lua_pushnil(L);
+        lua_pushstring(L, "expected libInd (integer)");
+        return 2;
+    }
+
+    Int32 libInd = (Int32)lua_tointeger(L, 1);
+
+    API_ParamOwnerType paramOwner;
+    BNZeroMemory(&paramOwner, sizeof(paramOwner));
+    paramOwner.libInd = libInd;
+    GSErrCode err = ACAPI_LibraryPart_OpenParameters(&paramOwner);
+    if (err != NoError) {
+        lua_pushnil(L);
+        lua_pushfstring(L, "OpenParameters failed: err=%d", (int)err);
+        return 2;
+    }
+
+    API_GetParamsType getParams;
+    BNZeroMemory(&getParams, sizeof(getParams));
+    err = ACAPI_LibraryPart_GetActParameters(&getParams);
+    if (err != NoError || getParams.params == nullptr) {
+        ACAPI_LibraryPart_CloseParameters();
+        lua_pushnil(L);
+        lua_pushstring(L, "no parameters");
+        return 2;
+    }
+
+    UInt32 nParams = (UInt32)(BMGetHandleSize((GSHandle)getParams.params) / sizeof(API_AddParType));
+    lua_createtable(L, (int)nParams, 0);
+    for (UInt32 i = 0; i < nParams; ++i) {
+        API_AddParType& par = (*getParams.params)[i];
+        lua_createtable(L, 0, 4);
+        lua_pushstring(L, par.name);
+        lua_setfield(L, -2, "name");
+        lua_pushinteger(L, par.typeID);
+        lua_setfield(L, -2, "typeID");
+        lua_pushinteger(L, par.typeMod);
+        lua_setfield(L, -2, "typeMod");
+        switch (par.typeID) {
+            case APIParT_Integer: case APIParT_Length:
+            case APIParT_Angle: case APIParT_RealNum: case APIParT_Intens:
+            case APIParT_LightSw: case APIParT_Boolean:
+                lua_pushnumber(L, par.value.real);
+                lua_setfield(L, -2, "value");
+                break;
+            case APIParT_CString: case APIParT_Title:
+                lua_pushstring(L, GS::UniString(par.value.uStr).ToCStr().Get());
+                lua_setfield(L, -2, "value");
+                break;
+            default:
+                break;
+        }
+        lua_rawseti(L, -2, (lua_Integer)(i + 1));
+    }
+    ACAPI_LibraryPart_CloseParameters();
     return 1;
 }
 
@@ -2674,6 +2739,9 @@ inline void Register(lua_State* L)
 
     lua_pushcfunction(L, CreateManyElements);
     lua_setfield(L, -2, "createMany");
+
+    lua_pushcfunction(L, ListParams);
+    lua_setfield(L, -2, "listParams");
 
     lua_pushcfunction(L, AddWall);
     lua_setfield(L, -2, "addWall");

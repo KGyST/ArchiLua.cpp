@@ -47,6 +47,8 @@ Undo batching: `beginUndo(label)` … `endUndo()` merges `set`/`setparams`/`dele
 
 `local guid = acapi.create(libInd, {x, y[, angle]}, { name = value, ... })` — create object instance with optional initial params (`angle` in radians). Only `APILib_ObjectID` parts supported (lib type ≠ element type — mapped explicitly). Defaults (layer etc.) come from `GetDefaults`; a zeroed header fails with `APIERR_BADINDEX`.
 
+`local list = acapi.listParams(libInd)` — diagnostic: `{name, typeID, typeMod, value}` per part parameter (`typeMod`: 0 = simple/settable, 2 = array).
+
 `local guid = acapi.addWall({ begC={x,y}, endC={x,y}, height, thickness, layer, floor })` — create a new straight wall. `floor` defaults to 1; also accepts `storey` as alias. Pass `poly` table (array of `{x,y}`) instead of `begC`/`endC` for a polygonal wall.
 
 `local guid = acapi.addWindow(wallGuid, { objLoc, height, width, sillHeight, refSide, oSide, mirrored })` — place a window in a straight wall. `refSide` and `oSide` (each `"inside"`/`"outside"`, mapping 1:1 to the stored mirror flags) and `mirrored` (bool) control orientation.

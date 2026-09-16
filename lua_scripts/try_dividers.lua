@@ -55,13 +55,14 @@ local function placeDividers(wallGuid, partName)
     if not guids then
         return false, err
     end
+    local info = err -- 2nd return is the "N placed, M overrides" info string
     dividers = {}
     for i, g in ipairs(guids) do
         dividers[i] = { guid = g, angle = ang }
     end
     -- stash for rebuilds on rotation change
     dividers.libInd = libInd
-    return true, foundName
+    return true, foundName .. " (" .. tostring(info) .. ")"
 end
 
 local function refreshDividers(wallGuid)
@@ -135,6 +136,30 @@ RegisterWebEvent("onPlaceDividers", function(args)
     end
 end)
 
+RegisterWebEvent("onInspectPart", function(args)
+    local partName = args and args.partName or ""
+    local libInd, found = acapi.findObject(partName)
+    if not libInd then
+        SetWebResult("find failed: " .. tostring(found))
+        return
+    end
+    local pars = acapi.listParams(libInd)
+    if not pars then
+        SetWebResult("listParams failed")
+        return
+    end
+    local hits = {}
+    for _, p in ipairs(pars) do
+        if p.name == "A" or p.name == "B" or p.name == "ZZYZX" then
+            table.insert(hits, string.format("%s t=%d m=%d v=%s",
+                p.name, p.typeID, p.typeMod, tostring(p.value)))
+        end
+    end
+    -- NOTE: SetWebResult truncates at ~500 chars; keep it short
+    SetWebResult(string.format("'%s': %d params; A/B/ZZYZX: %s",
+        tostring(found), #pars, table.concat(hits, " | ")))
+end)
+
 RegisterWebEvent("onRefreshDividers", function()
     if not watchedWall then
         SetWebResult("Pick a wall first!")
@@ -186,6 +211,7 @@ input{margin:4px 0;width:180px;}
 <div class='row'><label>Marker part name:</label><input id='partName' type='text' value='' placeholder='exact library document name'></div>
 <div>
 <button onclick='placeDividers()'>Pick Wall + Place Points</button>
+<button onclick='inspectPart()'>Inspect Part</button>
 <button onclick="archilua.DispatchEvent('onRefreshDividers')">Refresh Now</button>
 </div>
 <div>
@@ -198,6 +224,10 @@ function placeDividers(){
     var f = function(id){ return document.getElementById(id); };
     f('result').textContent = 'Click a wall in the ArchiCAD viewport...';
     archilua.CallLua('onPlaceDividers', JSON.stringify({ partName: f('partName').value }));
+}
+function inspectPart(){
+    var f = function(id){ return document.getElementById(id); };
+    archilua.CallLua('onInspectPart', JSON.stringify({ partName: f('partName').value }));
 }
 </script></body></html>
 ]])

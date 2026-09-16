@@ -3,7 +3,7 @@
 -- On wall Change/Edit their XY positions are recomputed from the new begC/endC.
 
 -- Bump on every script change; shown in the dialog footer to verify what's running.
-local SCRIPT_VER = "2026-09-16e"
+local SCRIPT_VER = "2026-09-16f"
 
 local watchedWall = nil
 local dividers = {} -- divider entries {guid, angle}, in wall order
@@ -248,6 +248,16 @@ RegisterWebEvent("onPlaceDividers", function(args)
         return
     end
     watchedWall = guid
+    if #dividers > 0 then
+        -- Re-place replaces: clear the previous row first, else it orphans.
+        acapi.beginUndo("Clear old dividers")
+        for _, d in ipairs(dividers) do
+            acapi.delete(d.guid)
+        end
+        acapi.endUndo()
+        logEvent("cleared previous row")
+        dividers = {}
+    end
     local ok, info = placeDividers(guid, partName)
     if not ok then
         SetWebResult("place failed: " .. tostring(info))

@@ -362,7 +362,7 @@ input{margin:4px 0;width:180px;}
 var eventLines = [];
 function eventLog(line){
     eventLines.unshift(new Date().toLocaleTimeString() + ' ' + line);
-    if(eventLines.length > 6) eventLines.pop();
+    if(eventLines.length > 10) eventLines.pop();
     document.getElementById('events').textContent = eventLines.join('\n');
 }
 function formArgs(){

@@ -768,23 +768,23 @@ static int CreateElement(lua_State* L)
         GSErrCode e = ACAPI_LibraryPart_Get(&libPart);
         if (e != NoError) { std::sprintf(errorMsg, "LibraryPart_Get failed: err=%d", (int)e); return e; }
 
-        // Determine element type from the library part
-        elem.header.type.typeID = static_cast<API_ElemTypeID>(libPart.typeID);
-
-        // Set common fields
-        elem.header.floorInd = 1; // default floor
-
-        // Set position based on type
+        // Determine element type from the library part.
+        // NOTE: libPart.typeID is API_LibTypeID (Object=4), NOT API_ElemTypeID
+        // (Object=6) — map explicitly, never cast.
         switch (libPart.typeID) {
-            case API_ObjectID:
+            case APILib_ObjectID:
+                elem.header.type.typeID = API_ObjectID;
                 elem.object.libInd = libInd;
                 elem.object.pos.x = posX;
                 elem.object.pos.y = posY;
                 break;
             default:
-                std::sprintf(errorMsg, "unsupported element type for creation");
+                std::sprintf(errorMsg, "unsupported library part type for creation (libType=%d)", (int)libPart.typeID);
                 return APIERR_GENERAL;
         }
+
+        // Set common fields
+        elem.header.floorInd = 1; // default floor
 
         // Get default params from the library part and apply overrides
         API_ElementMemo memo;

@@ -35,11 +35,14 @@ local function placeDividers(wallGuid, partName)
         return false, "getWall failed"
     end
     acapi.regWrite(REG_SEC, "partName", partName)
+    local spacing = (wall.endC.x - wall.begC.x) ^ 2 + (wall.endC.y - wall.begC.y) ^ 2
+    spacing = math.sqrt(spacing) / DIV_COUNT -- panel X size tiles the wall exactly
+    local params = { A = spacing, B = wall.thickness, ZZYZX = 0.25 }
     acapi.beginUndo("Place dividers")
     dividers = {}
     for i = 1, DIV_COUNT do
         local p = wallPoint(wall, (i - 0.5) / DIV_COUNT)
-        local g, err = acapi.create(libInd, p)
+        local g, err = acapi.create(libInd, p, params)
         if not g then
             acapi.endUndo()
             return false, err
@@ -55,6 +58,9 @@ local function refreshDividers(wallGuid)
     if not wall or #dividers == 0 then
         return false
     end
+    local dx = wall.endC.x - wall.begC.x
+    local dy = wall.endC.y - wall.begC.y
+    local spacing = math.sqrt(dx * dx + dy * dy) / DIV_COUNT
     acapi.beginUndo("Sync dividers")
     for i, g in ipairs(dividers) do
         local p = wallPoint(wall, (i - 0.5) / DIV_COUNT)
@@ -63,6 +69,8 @@ local function refreshDividers(wallGuid)
             acapi.endUndo()
             return false
         end
+        -- Re-tile panel X size so the row keeps filling the (possibly stretched) wall
+        acapi.setparams(g, { A = spacing })
     end
     acapi.endUndo()
     return true

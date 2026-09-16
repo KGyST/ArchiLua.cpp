@@ -76,8 +76,9 @@
   - Do NOT implement watched-lists, UI observer panels, or complex C++ classes.
 
 - [ ] **Divider Demo (`try_dividers.lua`):**
-  - Place 10 standalone divider points (library objects on the wall centerline) on a picked wall, watch it, recompute XY from `begC`/`endC` and move them via `acapi.set(pos)` on wall `edit`/`change`. Marker part name is user-configurable (persisted in registry); points removable via `acapi.delete`.
-  - Needs: `acapi.set` `pos` support for objects + `acapi.delete` (done); `ShowWebDialog` replaces the previous script's GUI instead of showing stale content (done).
+  - Place 10 standalone divider panels (library objects on the wall centerline) on a picked wall, watch it, recompute XY from `begC`/`endC` and move them via `acapi.set(pos)` on wall `edit`/`change`. Panel part name is user-configurable (persisted in registry); panels removable via `acapi.delete`.
+  - Brick-laying params on place: `A` = division spacing (tiles the wall), `B` = wall thickness, `ZZYZX` = 0.25; `A` re-tiled via `setparams` on sync.
+  - Needs: `acapi.set` `pos` support for objects + `acapi.delete` (done); `acapi.create` lib-type→element-type mapping fixed — `libPart.typeID` is `API_LibTypeID`, never cast to `API_ElemTypeID` (done); `ShowWebDialog` replaces the previous script's GUI instead of showing stale content (done).
 
 - [ ] **Observer Polish / Finalize (deferred):**
   - Decide `observerLog` fate (keep as diagnostic or remove); verify reload-persistence; revisit Edit-during-drag semantics if ArchiCAD behavior differs per operation.

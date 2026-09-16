@@ -160,9 +160,9 @@ RegisterWebEvent("onInspectPart", function(args)
         SetWebResult("find failed: " .. tostring(found))
         return
     end
-    local pars = acapi.listParams(libInd)
+    local pars, perr = acapi.listParams(libInd)
     if not pars then
-        SetWebResult("listParams failed")
+        SetWebResult("listParams failed: " .. tostring(perr))
         return
     end
     local hits = {}

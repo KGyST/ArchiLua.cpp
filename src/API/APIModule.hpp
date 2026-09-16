@@ -850,17 +850,23 @@ static int CreateElement(lua_State* L)
         // Re-assert libInd: GetDefaults may reset it to the default part.
         elem.object.libInd = libInd;
 
-        // Create the element (defaults memo; Create may ignore memo params,
-        // so overrides are applied via Change below — the proven path).
+        // Create the element (defaults memo; overrides go via Change below).
+        // On BADPARS the same element is retried memo-less to isolate the cause.
         e = ACAPI_Element_Create(&elem, &memo);
+        bool singleBypassed = false;
+        if (e == APIERR_BADPARS) {
+            e = ACAPI_Element_Create(&elem, nullptr);
+            if (e == NoError)
+                singleBypassed = true;
+        }
         ACAPI_DisposeElemMemoHdls(&memo);
         if (e != NoError) {
-            std::sprintf(errorMsg, "Element_Create failed: err=%d (libInd=%d libType=%d floor=%d pos=%.3f,%.3f)",
-                         (int)e, (int)libInd, (int)libPart.typeID,
-                         (int)elem.header.floorInd, posX, posY);
+            std::sprintf(errorMsg, "Element_Create failed: err=%d", (int)e);
             return e;
         }
         createdGuid = elem.header.guid;
+        if (singleBypassed)
+            ACAPI_WriteReport("create: memo-less retry succeeded (memo was the problem)", false);
 
         // Verify the placed element really is our part (GetDefaults is known
         // to reset libInd to the default part on some flows).
@@ -946,6 +952,7 @@ static int CreateManyElements(lua_State* L)
     std::vector<API_Guid> placed;
     char errorMsg[256] = {};
     int appliedOverrides = 0;
+    bool memoBypassed = false;
 
     GSErrCode err = ACAPI_CallUndoableCommand("Create Elements", [&]() -> GSErrCode {
         API_LibPart libPart;
@@ -1008,6 +1015,13 @@ static int CreateManyElements(lua_State* L)
             elem.object.libInd = libInd;
 
             e = ACAPI_Element_Create(&elem, &memo);
+            if (e == APIERR_BADPARS) {
+                // Diagnostic fallback: same element without memo. If this
+                // succeeds, the defaults memo is what Create chokes on.
+                e = ACAPI_Element_Create(&elem, nullptr);
+                if (e == NoError)
+                    memoBypassed = true;
+            }
             ACAPI_DisposeElemMemoHdls(&memo);
             if (e != NoError) {
                 std::sprintf(errorMsg, "Element_Create failed at item %d: err=%d (libInd=%d libType=%d floor=%d pos=%.3f,%.3f)",
@@ -1072,7 +1086,8 @@ static int CreateManyElements(lua_State* L)
         lua_pushstring(L, guidStr.ToCStr().Get());
         lua_rawseti(L, -2, (lua_Integer)(i + 1));
     }
-    lua_pushfstring(L, "%d placed, %d overrides applied", (int)placed.size(), appliedOverrides);
+    lua_pushfstring(L, "%d placed, %d overrides applied%s", (int)placed.size(), appliedOverrides,
+                      memoBypassed ? " (memo bypassed!)" : "");
     return 2;
 }
 

@@ -844,57 +844,11 @@ static int CreateElement(lua_State* L)
         if (hasAngle)
             elem.object.angle = posAngle;
 
-        // Apply param overrides into the defaults memo
-        if (hasParams && memo.params == nullptr) {
-            ACAPI_DisposeElemMemoHdls(&memo);
-            std::sprintf(errorMsg, "create: element has no params memo (overrides refused)");
-            return APIERR_GENERAL;
-        }
-        if (hasParams) {
-            UInt32 nParams = (UInt32)(BMGetHandleSize((GSHandle)memo.params) / sizeof(API_AddParType));
-            for (UInt32 i = 0; i < nParams; ++i) {
-                API_AddParType& par = (*memo.params)[i];
-                if (par.typeMod != API_ParSimple)
-                    continue;
+        // NOTE: overrides are applied post-create via Change (Create ignores
+        // memo params for objects). The memo here carries defaults only.
 
-                lua_getfield(L, 3, par.name);
-                if (lua_isnil(L, -1)) { lua_pop(L, 1); continue; }
-                bool applied = false;
-
-                switch (par.typeID) {
-                    case APIParT_Integer: case APIParT_Length:
-                    case APIParT_Angle: case APIParT_RealNum: case APIParT_Intens:
-                        if (lua_isnumber(L, -1)) {
-                            par.value.real = lua_tonumber(L, -1);
-                            applied = true;
-                        }
-                        break;
-                    case APIParT_LightSw: case APIParT_Boolean:
-                        par.value.real = lua_toboolean(L, -1) ? 1.0 : 0.0;
-                        applied = true;
-                        break;
-                    case APIParT_CString: {
-                        const char* s = lua_tostring(L, -1);
-                        if (s) {
-                            int wlen = MultiByteToWideChar(CP_UTF8, 0, s, -1, nullptr, 0);
-                            if (wlen > 0 && wlen <= API_UAddParStrLen) {
-                                MultiByteToWideChar(CP_UTF8, 0, s, -1, (LPWCH)par.value.uStr, wlen);
-                                applied = true;
-                            }
-                        }
-                        break;
-                    }
-                    default: break;
-                }
-                if (applied)
-                    ++appliedOverrides;
-                lua_pop(L, 1);
-            }
-
-        }
-        if (hasParams && appliedOverrides == 0) {
-            ACAPI_WriteReport("create: warning — none of the override names matched a parameter", false);
-        }
+        // Re-assert libInd: GetDefaults may reset it to the default part.
+        elem.object.libInd = libInd;
 
         // Create the element (defaults memo; Create may ignore memo params,
         // so overrides are applied via Change below — the proven path).
@@ -905,6 +859,21 @@ static int CreateElement(lua_State* L)
             return e;
         }
         createdGuid = elem.header.guid;
+
+        // Verify the placed element really is our part (GetDefaults is known
+        // to reset libInd to the default part on some flows).
+        {
+            API_Element placedElem;
+            BNZeroMemory(&placedElem, sizeof(placedElem));
+            placedElem.header.guid = createdGuid;
+            e = ACAPI_Element_Get(&placedElem);
+            if (e == NoError && placedElem.header.type.typeID == API_ObjectID &&
+                placedElem.object.libInd != libInd) {
+                std::sprintf(errorMsg, "placed wrong part: wanted libInd %d, got %d",
+                             (int)libInd, (int)placedElem.object.libInd);
+                return APIERR_GENERAL;
+            }
+        }
 
         if (hasParams) {
             API_Element elem2;
@@ -932,6 +901,9 @@ static int CreateElement(lua_State* L)
             if (e != NoError) {
                 std::sprintf(errorMsg, "post-create param change failed: err=%d", (int)e);
                 return e;
+            }
+            if (appliedOverrides == 0) {
+                ACAPI_WriteReport("create: warning — none of the override names matched a parameter", false);
             }
         }
         return NoError;
@@ -1030,45 +1002,52 @@ static int CreateManyElements(lua_State* L)
             if (hasAngle)
                 elem.object.angle = angle;
 
-            if (hasParams && memo.params == nullptr) {
-                ACAPI_DisposeElemMemoHdls(&memo);
-                std::sprintf(errorMsg, "createMany: no params memo at item %d (overrides refused)", (int)i);
-                return APIERR_GENERAL;
-            }
-            if (hasParams) {
-                UInt32 nParams = (UInt32)(BMGetHandleSize((GSHandle)memo.params) / sizeof(API_AddParType));
-                for (UInt32 k = 0; k < nParams; ++k) {
-                    API_AddParType& par = (*memo.params)[k];
-                    if (par.typeMod != API_ParSimple)
-                        continue;
-                    lua_getfield(L, 3, par.name);
-                    if (lua_isnil(L, -1)) { lua_pop(L, 1); continue; }
-                    bool applied = false;
-                    switch (par.typeID) {
-                        case APIParT_Integer: case APIParT_Length:
-                        case APIParT_Angle: case APIParT_RealNum: case APIParT_Intens:
-                            if (lua_isnumber(L, -1)) {
-                                par.value.real = lua_tonumber(L, -1);
-                                applied = true;
-                            }
-                            break;
-                        case APIParT_LightSw: case APIParT_Boolean:
-                            par.value.real = lua_toboolean(L, -1) ? 1.0 : 0.0;
-                            applied = true;
-                            break;
-                        default: break;
-                    }
-                    if (applied)
-                        ++appliedOverrides;
-                    lua_pop(L, 1);
-                }
-            }
+            // Re-assert libInd: GetDefaults may reset it to the default part.
+            elem.object.libInd = libInd;
 
             e = ACAPI_Element_Create(&elem, &memo);
             ACAPI_DisposeElemMemoHdls(&memo);
             if (e != NoError) {
                 std::sprintf(errorMsg, "Element_Create failed at item %d: err=%d", (int)i, (int)e);
                 return e;
+            }
+
+            // Verify the placed element really is our part (not id=1 default).
+            API_Element placedElem;
+            BNZeroMemory(&placedElem, sizeof(placedElem));
+            placedElem.header.guid = elem.header.guid;
+            e = ACAPI_Element_Get(&placedElem);
+            if (e != NoError) {
+                std::sprintf(errorMsg, "post-create Get failed at item %d: err=%d", (int)i, (int)e);
+                return e;
+            }
+            if (placedElem.header.type.typeID == API_ObjectID &&
+                placedElem.object.libInd != libInd) {
+                std::sprintf(errorMsg, "item %d placed wrong part: wanted libInd %d, got %d",
+                             (int)i, (int)libInd, (int)placedElem.object.libInd);
+                return APIERR_GENERAL;
+            }
+
+            // Overrides go through Change (Create ignores memo params).
+            if (hasParams) {
+                API_ElementMemo memo2;
+                BNZeroMemory(&memo2, sizeof(memo2));
+                e = ACAPI_Element_GetMemo(elem.header.guid, &memo2, APIMemoMask_AddPars);
+                if (e != NoError || memo2.params == nullptr) {
+                    if (e == NoError)
+                        ACAPI_DisposeElemMemoHdls(&memo2);
+                    std::sprintf(errorMsg, "createMany: no params memo at item %d", (int)i);
+                    return APIERR_GENERAL;
+                }
+                appliedOverrides += ApplyParamOverrides(L, 3, memo2);
+                API_Element mask2;
+                ACAPI_ELEMENT_MASK_CLEAR(mask2);
+                e = ACAPI_Element_Change(&placedElem, &mask2, &memo2, APIMemoMask_AddPars, true);
+                ACAPI_DisposeElemMemoHdls(&memo2);
+                if (e != NoError) {
+                    std::sprintf(errorMsg, "param change failed at item %d: err=%d", (int)i, (int)e);
+                    return e;
+                }
             }
             placed.push_back(elem.header.guid);
         }

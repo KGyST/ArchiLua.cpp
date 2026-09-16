@@ -45,7 +45,7 @@ Undo batching: `beginUndo(label)` … `endUndo()` merges `set`/`setparams`/`dele
 
 ## Creation
 
-`local guid = acapi.create(libInd, {x, y[, angle]}, { name = value, ... })` — create object instance with optional initial params (`angle` in radians). Only `APILib_ObjectID` parts supported (lib type ≠ element type — mapped explicitly). Defaults (layer etc.) come from `GetDefaults`; a zeroed header fails with `APIERR_BADINDEX`.
+`local guid, info = acapi.create(libInd, {x, y[, angle]}, { name = value, ... })` — create object instance (`angle` in radians). Only `APILib_ObjectID` parts supported (lib type ≠ element type — mapped explicitly). Defaults come from `GetDefaults` (a zeroed header fails with `APIERR_BADINDEX`); params apply via post-create `Change` because `Create` ignores memo params. `libInd` is re-asserted after `GetDefaults` and verified post-create (fails loudly on wrong-part placement). `info` reports the override count.
 
 `local list = acapi.listParams(libInd)` — diagnostic: `{name, typeID, typeMod, value}` per part parameter (`typeMod`: 0 = simple/settable, 2 = array).
 

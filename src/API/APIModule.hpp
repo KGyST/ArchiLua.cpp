@@ -855,7 +855,9 @@ static int CreateElement(lua_State* L)
         e = ACAPI_Element_Create(&elem, &memo);
         ACAPI_DisposeElemMemoHdls(&memo);
         if (e != NoError) {
-            std::sprintf(errorMsg, "Element_Create failed: err=%d", (int)e);
+            std::sprintf(errorMsg, "Element_Create failed: err=%d (libInd=%d libType=%d floor=%d pos=%.3f,%.3f)",
+                         (int)e, (int)libInd, (int)libPart.typeID,
+                         (int)elem.header.floorInd, posX, posY);
             return e;
         }
         createdGuid = elem.header.guid;
@@ -1008,7 +1010,9 @@ static int CreateManyElements(lua_State* L)
             e = ACAPI_Element_Create(&elem, &memo);
             ACAPI_DisposeElemMemoHdls(&memo);
             if (e != NoError) {
-                std::sprintf(errorMsg, "Element_Create failed at item %d: err=%d", (int)i, (int)e);
+                std::sprintf(errorMsg, "Element_Create failed at item %d: err=%d (libInd=%d libType=%d floor=%d pos=%.3f,%.3f)",
+                             (int)i, (int)e, (int)libInd, (int)libPart.typeID,
+                             (int)elem.header.floorInd, x, y);
                 return e;
             }
 

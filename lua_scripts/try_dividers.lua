@@ -3,27 +3,40 @@
 -- On wall Change/Edit their XY positions are recomputed from the new begC/endC.
 
 -- Bump on every script change; shown in the dialog footer to verify what's running.
-local SCRIPT_VER = "2026-09-16s"
+local SCRIPT_VER = "2026-09-16t"
 
 local watchedWall = nil
 local dividers = {} -- divider entries {guid, angle}, in wall order
-local DIV_COUNT = 10
+local DIV_COUNT_DEFAULT = 10
 local REG_SEC = "try_dividers"
+-- Live row's count (set at place/restore). The UI setting (opts.count) only
+-- takes effect on next Place, so a live row's slot mapping never shifts.
+local ROW_N = DIV_COUNT_DEFAULT
 local WATCHFUNC = "try_dividers.lua\\onDividersWallEvent"
 
 -- Panel options (persisted). b = nil means auto = wall thickness.
-local opts = { b = nil, zzyzx = 0.25, center = false }
+local opts = { b = nil, zzyzx = 0.25, center = false, count = DIV_COUNT_DEFAULT }
+
+local function clampCount(v)
+    v = tonumber(v)
+    if v == nil then return nil end
+    v = math.floor(v)
+    if v < 1 or v > 100 then return nil end
+    return v
+end
 
 local function loadOpts()
     opts.b = tonumber(acapi.regRead(REG_SEC, "B")) -- nil stays nil = auto
     opts.zzyzx = tonumber(acapi.regRead(REG_SEC, "ZZYZX")) or 0.25
     opts.center = acapi.regRead(REG_SEC, "center", "false") == "true"
+    opts.count = clampCount(acapi.regRead(REG_SEC, "DIVCOUNT")) or DIV_COUNT_DEFAULT
 end
 
 local function saveOpts()
     acapi.regWrite(REG_SEC, "B", opts.b ~= nil and tostring(opts.b) or "")
     acapi.regWrite(REG_SEC, "ZZYZX", tostring(opts.zzyzx))
     acapi.regWrite(REG_SEC, "center", opts.center and "true" or "false")
+    acapi.regWrite(REG_SEC, "DIVCOUNT", tostring(opts.count))
 end
 
 local function effB(wall)
@@ -48,6 +61,7 @@ local function persistState()
     acapi.regWrite(REG_SEC, "angles", table.concat(as, ","))
     acapi.regWrite(REG_SEC, "dead", table.concat(ds, ","))
     acapi.regWrite(REG_SEC, "libInd", dividers.libInd ~= nil and tostring(dividers.libInd) or "")
+    acapi.regWrite(REG_SEC, "rowCount", tostring(ROW_N))
 end
 
 -- Mark entries currently unreachable (undo in flight, mid-drag states).
@@ -138,7 +152,7 @@ end
 -- sits on the division: shifted back half of A along the wall direction
 -- (panel local +X follows the wall vector via angle).
 local function divPoint(wall, spacing, ang, i)
-    local p = wallPoint(wall, (i - 0.5) / DIV_COUNT)
+    local p = wallPoint(wall, (i - 0.5) / ROW_N)
     if opts.center then
         local dx = wall.endC.x - wall.begC.x
         local dy = wall.endC.y - wall.begC.y
@@ -175,11 +189,11 @@ local function placeDividers(wallGuid, partName)
     end
     acapi.regWrite(REG_SEC, "partName", partName)
     local wallLen = math.sqrt((wall.endC.x - wall.begC.x) ^ 2 + (wall.endC.y - wall.begC.y) ^ 2)
-    local spacing = wallLen / DIV_COUNT -- panel X size tiles the wall exactly
+    local spacing = wallLen / ROW_N -- panel X size tiles the wall exactly
     local params = { A = spacing, B = effB(wall), ZZYZX = opts.zzyzx }
     local ang = wallAngle(wall)
     local positions = {}
-    for i = 1, DIV_COUNT do
+    for i = 1, ROW_N do
         positions[i] = divPoint(wall, spacing, ang, i)
     end
     -- one undoable command for the whole row
@@ -215,7 +229,7 @@ local function refreshDividers(wallGuid)
     end
     local dx = wall.endC.x - wall.begC.x
     local dy = wall.endC.y - wall.begC.y
-    local spacing = math.sqrt(dx * dx + dy * dy) / DIV_COUNT
+    local spacing = math.sqrt(dx * dx + dy * dy) / ROW_N
     local newAngle = wallAngle(wall)
     local params = { A = spacing, B = effB(wall), ZZYZX = opts.zzyzx }
     -- Partition: moves apply in place, direction changes need a rebuild
@@ -386,7 +400,7 @@ end
 local function panelsDiverged(wall)
     local dx = wall.endC.x - wall.begC.x
     local dy = wall.endC.y - wall.begC.y
-    local spacing = math.sqrt(dx * dx + dy * dy) / DIV_COUNT
+    local spacing = math.sqrt(dx * dx + dy * dy) / ROW_N
     local ang = wallAngle(wall)
     for i, d in ipairs(dividers) do
         local want = divPoint(wall, spacing, ang, i)
@@ -439,6 +453,7 @@ RegisterWebEvent("onPlaceDividers", function(args)
         return
     end
     watchedWall = guid
+    ROW_N = opts.count -- the setting takes effect on Place; refresh keeps ROW_N
     markStale()
     if liveCount() > 0 then
         -- Re-place replaces: clear the previous row first, else it orphans.
@@ -464,7 +479,7 @@ RegisterWebEvent("onPlaceDividers", function(args)
         SetWebResult("place failed: " .. tostring(info))
         return
     end
-    local wok, werr = acapi.watch(guid, WATCHFUNC, { count = DIV_COUNT })
+    local wok, werr = acapi.watch(guid, WATCHFUNC, { count = ROW_N })
     if wok then
         for _, d in ipairs(dividers) do
             acapi.watch(d.guid, WATCHFUNC, { panel = true })
@@ -529,6 +544,21 @@ end)
 RegisterWebEvent("onToggleAuto", function(args)
     -- Persisted silently; restored on load. No result spam on mere toggle.
     acapi.regWrite(REG_SEC, "autoRef", (args and args.enabled) and "true" or "false")
+end)
+
+RegisterWebEvent("onCountChanged", function(args)
+    local n = args and clampCount(args.count) or nil
+    if n == nil then
+        SetWebResult("Division count must be an integer 1..100")
+        return
+    end
+    opts.count = n
+    saveOpts()
+    if #dividers > 0 and ROW_N ~= n then
+        SetWebResult(string.format("Division count set to %d — re-place to apply (current row keeps %d)", n, ROW_N))
+    else
+        SetWebResult(string.format("Division count set to %d", n))
+    end
 end)
 
 RegisterWebEvent("onEnlistDividers", function()
@@ -622,6 +652,7 @@ input{margin:4px 0;width:180px;}
 .row{margin:4px 0;}
 </style></head><body>
 <div class='row'><label>Marker part name:</label><input id='partName' type='text' value='' placeholder='exact library document name'></div>
+<div class='row'><label>Divisions:</label><input id='divCount' type='number' value='10' min='1' max='100' step='1' onchange='countChanged()' title='takes effect on next Place'></div>
 <div class='row'><label>Panel B (width):</label><input id='panelB' type='text' value='' placeholder='auto = wall width' oninput='fieldEdited()'></div>
 <div class='row'><label>ZZYZX:</label><input id='panelZZ' type='number' value='0.25' step='0.05' oninput='fieldEdited()'></div>
 <div class='row'><label>Center on point:</label><input id='centerDiv' type='checkbox' onchange='refreshNow()' title='panel midpoint (not origin) sits on the division; applies immediately'></div>
@@ -679,6 +710,9 @@ function toggleLog(){
 function saveAutoRef(){
     archilua.CallLua('onToggleAuto', JSON.stringify({ enabled: document.getElementById('autoRef').checked }));
 }
+function countChanged(){
+    archilua.CallLua('onCountChanged', JSON.stringify({ count: parseInt(document.getElementById('divCount').value, 10) }));
+}
 var tickTimer = null;
 function startTick(){
     if(tickTimer) return;
@@ -705,6 +739,7 @@ do
         opts.center and "true" or "false"))
     ExecuteJS(string.format("document.getElementById('autoRef').checked=%s;",
         acapi.regRead(REG_SEC, "autoRef", "false") == "true" and "true" or "false"))
+    ExecuteJS(string.format("document.getElementById('divCount').value='%d';", opts.count))
     ExecuteJS(string.format("document.getElementById('ver').textContent='try_dividers.lua %s';", SCRIPT_VER))
     -- Restore previous session: wall + dividers survive re-runs (the C++ watch
     -- does too), so refresh keeps working without re-placing.
@@ -722,8 +757,9 @@ do
             end
         end
         dividers.libInd = tonumber(acapi.regRead(REG_SEC, "libInd", ""))
+        ROW_N = clampCount(acapi.regRead(REG_SEC, "rowCount", "")) or #dividers
         if acapi.regRead(REG_SEC, "watched", "false") == "true" and #dividers > 0 then
-            acapi.watch(w, WATCHFUNC, { count = DIV_COUNT })
+            acapi.watch(w, WATCHFUNC, { count = ROW_N })
             for _, d in ipairs(dividers) do
                 acapi.watch(d.guid, WATCHFUNC, { panel = true })
             end

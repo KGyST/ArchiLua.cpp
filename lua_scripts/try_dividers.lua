@@ -3,7 +3,7 @@
 -- On wall Change/Edit their XY positions are recomputed from the new begC/endC.
 
 -- Bump on every script change; shown in the dialog footer to verify what's running.
-local SCRIPT_VER = "2026-09-16p"
+local SCRIPT_VER = "2026-09-16q"
 
 local watchedWall = nil
 local dividers = {} -- divider entries {guid, angle}, in wall order
@@ -249,6 +249,7 @@ end
 -- events only ATTEMPT a sync (harmless when allowed) and otherwise mark dirty;
 -- the JS heartbeat (same safe context as button clicks) performs the real sync.
 local syncDirty = false
+local lastGuideTime = 0
 
 -- Last synced wall state per guid (geometry + opts). The drop fires both a
 -- flushed edit AND a change; the second run would redo identical work as its
@@ -331,6 +332,27 @@ end
 -- every beat compares the wall hash: undo/redo (which we must not write
 -- during, and which split wall and panels into separate undo units) shows up
 -- as drift and gets re-synced here — eventual consistency without polling writes.
+-- A reverted sync (panels moved back, wall unchanged) is GUIDED, never
+-- rewritten: rewriting it would trap the user (wall-undo unreachable behind
+-- an auto-redoing sync), so we only explain the next Ctrl+Z.
+local function panelsDiverged(wall)
+    local dx = wall.endC.x - wall.begC.x
+    local dy = wall.endC.y - wall.begC.y
+    local spacing = math.sqrt(dx * dx + dy * dy) / DIV_COUNT
+    local ang = wallAngle(wall)
+    for i, d in ipairs(dividers) do
+        local want = divPoint(wall, spacing, ang, i)
+        local got = acapi.getPos(d.guid)
+        if type(got) ~= "table" then
+            return false -- unreadable (stale?) — prune path owns this case
+        end
+        if math.abs(got.x - want.x) > 1e-6 or math.abs(got.y - want.y) > 1e-6 then
+            return true
+        end
+    end
+    return false
+end
+
 function onTick()
     if not watchedWall or #dividers == 0 then
         syncDirty = false
@@ -343,6 +365,15 @@ function onTick()
         end
         if lastSync[watchedWall] == syncKey(wall) then
             return -- in sync, stay silent (no log spam)
+        end
+        if panelsDiverged(wall) then
+            if os.time() - lastGuideTime >= 10 then
+                lastGuideTime = os.time()
+                local msg = "Divider sync was undone — Ctrl+Z again undoes the wall move"
+                SetWebResult(msg)
+                logEvent(msg)
+            end
+            return
         end
     end
     handleWallSync(watchedWall, "tick")

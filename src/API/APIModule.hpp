@@ -231,6 +231,42 @@ static int GetElement(lua_State* L)
     return 1;
 }
 
+// getPos(guid) -> {x, y} | (nil, err). Position reader for objects
+// (GetElement intentionally carries no pos); the tick uses it to detect
+// panel-side divergence that wall-hash comparison cannot see.
+static int GetPos(lua_State* L)
+{
+    const char* guidStr = lua_tostring(L, 1);
+    if (guidStr == nullptr) {
+        lua_pushnil(L);
+        lua_pushstring(L, "expected a GUID string");
+        return 2;
+    }
+
+    API_Guid guid = APIGuidFromString(guidStr);
+    API_Element elem;
+    BNZeroMemory(&elem, sizeof(elem));
+    elem.header.guid = guid;
+    GSErrCode err = ACAPI_Element_Get(&elem);
+    if (err != NoError) {
+        lua_pushnil(L);
+        lua_pushfstring(L, "ACAPI_Element_Get failed: err=%d", (int)err);
+        return 2;
+    }
+    if (elem.header.type.typeID != API_ObjectID) {
+        lua_pushnil(L);
+        lua_pushstring(L, "getPos: not an object");
+        return 2;
+    }
+
+    lua_createtable(L, 0, 2);
+    lua_pushnumber(L, elem.object.pos.x);
+    lua_setfield(L, -2, "x");
+    lua_pushnumber(L, elem.object.pos.y);
+    lua_setfield(L, -2, "y");
+    return 1;
+}
+
 static int GetPoly(lua_State* L)
 {
     const char* guidStr = lua_tostring(L, 1);
@@ -3091,6 +3127,9 @@ inline void Register(lua_State* L)
 
     lua_pushcfunction(L, GetElement);
     lua_setfield(L, -2, "get");
+
+    lua_pushcfunction(L, GetPos);
+    lua_setfield(L, -2, "getPos");
 
     lua_pushcfunction(L, GetCurrentFloor);
     lua_setfield(L, -2, "getCurrentFloor");

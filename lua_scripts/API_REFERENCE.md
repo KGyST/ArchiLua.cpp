@@ -69,4 +69,6 @@ Undo batching: `beginUndo(label)` … `endUndo()` merges `set`/`setparams`/`dele
 
 `local v = acapi.regRead(section, key[, default])` — read a string from `HKCU\Software\Samu\ArchiLua\<section>`. Returns `default` (or `nil`) when missing. Section/key must match `[A-Za-z0-9_]{1,64}`, so scripts cannot escape the sandbox.
 
+`local p = acapi.getPos(guid)` — `{x, y}` position of an object (read-only; `GetElement` carries no `pos`). Used by tick drift-detection to spot panel-side divergence.
+
 `acapi.regWrite(section, key, value)` — write a string/number/boolean (stored as `REG_SZ`, max 4000 chars) under `HKCU\Software\Samu\ArchiLua\<section>`. Returns `true` on success.

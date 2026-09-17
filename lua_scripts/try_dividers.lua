@@ -3,7 +3,7 @@
 -- On wall Change/Edit their XY positions are recomputed from the new begC/endC.
 
 -- Bump on every script change; shown in the dialog footer to verify what's running.
-local SCRIPT_VER = "2026-09-17u"
+local SCRIPT_VER = "2026-09-17v"
 
 local watchedWall = nil
 local dividers = {} -- divider entries {guid, angle}, in wall order
@@ -49,8 +49,11 @@ local logEvent
 -- Source of truth lives ON THE WALL (user data), travelling with the element
 -- through save/load (and undo — user-data ops are undoable). Registry keeps
 -- only UI prefs + the last-wall hint. Session table is a scratch cache.
+-- Library indices are session-volatile (DevKit: "not constant through the
+-- whole life of the project") — persist the stable document NAME, resolve
+-- to a fresh libInd on every adopt/place/restore.
 local function buildRow()
-    local row = { dividers = {}, libInd = dividers.libInd, count = ROW_N,
+    local row = { dividers = {}, partName = dividers.partName, count = ROW_N,
                   opts = { zzyzx = opts.zzyzx, center = opts.center } }
     if opts.b ~= nil then row.opts.b = opts.b end
     for i, d in ipairs(dividers) do
@@ -83,6 +86,25 @@ local function pushOptsToForm()
         opts.center and "true" or "false"))
 end
 
+-- Resolve a fresh libInd (indices are session-volatile); fails loudly when
+-- the part left the library. Legacy rows carry libInd only (no partName):
+-- used as-is, may go stale across reloads — re-place then.
+local function resolveRowPart(row)
+    if type(row.partName) == "string" and row.partName ~= "" then
+        local libInd, err = resolvePart(row.partName)
+        if not libInd then
+            return nil, err
+        end
+        dividers.partName = row.partName
+        return libInd
+    end
+    local legacy = tonumber(row.libInd)
+    if legacy ~= nil then
+        return legacy
+    end
+    return nil, "row has neither partName nor libInd — re-place"
+end
+
 -- Adopt a wall's user-data row into session state (table + opts + form).
 local function adoptRow(wallGuid, row)
     dividers = {}
@@ -92,7 +114,12 @@ local function adoptRow(wallGuid, row)
             if e.dead then dividers[i].dead = true end
         end
     end
-    dividers.libInd = tonumber(row.libInd)
+    local libInd, err = resolveRowPart(row)
+    if not libInd then
+        return false, err
+    end
+    dividers.libInd = libInd
+    dividers.partName = row.partName -- stable identity; libInd re-resolves per refresh
     ROW_N = tonumber(row.count) or #dividers
     if type(row.opts) == "table" then
         if row.opts.b ~= nil then opts.b = tonumber(row.opts.b) end
@@ -102,6 +129,7 @@ local function adoptRow(wallGuid, row)
         pushOptsToForm()
     end
     watchedWall = wallGuid
+    return true
 end
 
 -- Read-only row fetch (no side effects). Nil when the wall carries no row.
@@ -246,8 +274,10 @@ local function placeDividers(wallGuid, partName)
     for i, g in ipairs(guids) do
         dividers[i] = { guid = g, angle = ang }
     end
-    -- stash for rebuilds on rotation change
+    -- stash for rebuilds on rotation change (libInd is session-ephemeral;
+    -- partName below is the stable identity re-resolved on every refresh)
     dividers.libInd = libInd
+    dividers.partName = partName
     persistState()
     return true, foundName .. " (" .. tostring(info) .. ")"
 end
@@ -259,7 +289,10 @@ local function refreshDividers(wallGuid)
     end
     local row = readRow(wallGuid)
     if row then
-        adoptRow(wallGuid, row)
+        local aok, aerr = adoptRow(wallGuid, row)
+        if not aok then
+            return false, aerr
+        end
     elseif #dividers == 0 then
         return false, "no dividers tracked (place first)"
     else
@@ -503,17 +536,21 @@ RegisterWebEvent("onPlaceDividers", function(args)
     do
         local row = readRow(guid)
         if row then
-            local rowLib = tonumber(row.libInd)
-            local wantInd, wantErr = nil, nil
+            local wantInd = nil
             if partName ~= "" then
-                wantInd, wantErr = resolvePart(partName)
-                if partName ~= "" and wantInd == nil then
-                    SetWebResult("part resolve failed: " .. tostring(wantErr))
+                local wi, we = resolvePart(partName)
+                if wi == nil then
+                    SetWebResult("part resolve failed: " .. tostring(we))
                     return
                 end
+                wantInd = wi
             end
-            if wantInd == nil or rowLib == nil or wantInd == rowLib then
-                adoptRow(guid, row)
+            local aok, aerr = adoptRow(guid, row)
+            if not aok then
+                SetWebResult("adopt failed: " .. tostring(aerr))
+                return
+            end
+            if wantInd == nil or wantInd == dividers.libInd then
                 local wok2, werr2 = acapi.watch(guid, WATCHFUNC, { count = ROW_N })
                 if wok2 then
                     for _, d in ipairs(dividers) do
@@ -827,8 +864,10 @@ do
     if type(w) == "string" and w ~= "" and acapi.getWall(w) then
         local row = readRow(w)
         if row then
-            adoptRow(w, row)
-            if acapi.regRead(REG_SEC, "watched", "false") == "true" and #dividers > 0 then
+            local aok, aerr = adoptRow(w, row)
+            if not aok then
+                logEvent("restore failed: " .. tostring(aerr))
+            elseif acapi.regRead(REG_SEC, "watched", "false") == "true" and #dividers > 0 then
                 acapi.watch(w, WATCHFUNC, { count = ROW_N })
                 for _, d in ipairs(dividers) do
                     if not d.dead then

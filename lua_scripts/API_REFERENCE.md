@@ -75,4 +75,6 @@ Undo batching: `beginUndo(label)` … `endUndo()` merges `set`/`setparams`/`dele
 
 `local p = acapi.getPos(guid)` — `{x, y}` position of an object (read-only; `GetElement` carries no `pos`). Used by tick drift-detection to spot panel-side divergence.
 
+Names, not indices: library `index` values shift across reloads (per DevKit), so rows persist the stable document *name* (`partName`) and resolve a fresh `libInd` on every adopt/place/refresh. A vanished part fails loudly instead of placing index-shifted wrong parts.
+
 `acapi.regWrite(section, key, value)` — write a string/number/boolean (stored as `REG_SZ`, max 4000 chars) under `HKCU\Software\Samu\ArchiLua\<section>`. Returns `true` on success.

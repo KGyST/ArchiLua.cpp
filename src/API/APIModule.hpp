@@ -1465,6 +1465,129 @@ static int SyncRow(lua_State* L)
     return 2;
 }
 
+// Forward declarations (defined in the observer section below).
+static Json LuaTableToJson(lua_State* L, int idx, int depth = 0);
+static void PushJsonVal(lua_State* L, const Json& val);
+
+// Element user data (Phase 3.7 row model): arbitrary Lua tables stored as
+// JSON text in the element record (API_ElementUserData.dataHdl), travelling
+// with the element through save/load (and undo — user-data ops are undoable
+// since AC20). Generic over element types; the API validates the guid.
+// setUserData(guid, table) -> true | (false, err)
+static int SetUserData(lua_State* L)
+{
+    const char* guidStr = lua_tostring(L, 1);
+    if (guidStr == nullptr || !lua_istable(L, 2)) {
+        lua_pushboolean(L, false);
+        lua_pushstring(L, "setUserData: expected guid and table");
+        return 2;
+    }
+
+    API_Guid guid = APIGuidFromString(guidStr);
+    API_Element elem;
+    BNZeroMemory(&elem, sizeof(elem));
+    elem.header.guid = guid;
+    GSErrCode err = ACAPI_Element_Get(&elem);
+    if (err != NoError) {
+        lua_pushboolean(L, false);
+        lua_pushfstring(L, "element not found: err=%d", (int)err);
+        return 2;
+    }
+
+    lua_pushvalue(L, 2);
+    Json kw = LuaTableToJson(L, -1);
+    lua_pop(L, 1);
+    std::string text = kw.Dump();
+
+    GSHandle h = BMAllocateHandle((GSSize)text.size() + 1, 0, 0);
+    if (h == nullptr) {
+        lua_pushboolean(L, false);
+        lua_pushstring(L, "out of memory");
+        return 2;
+    }
+    memcpy(*h, text.c_str(), text.size() + 1);
+
+    API_ElementUserData ud = {};
+    ud.dataVersion = 1;
+    ud.platformSign = GS::Win_Platform_Sign;
+    ud.flags = 0; // no copy/merge/fill semantics: row belongs to this element
+    ud.dataHdl = h;
+
+    API_Elem_Head head = {};
+    head.type = elem.header.type;
+    head.guid = guid;
+    err = ACAPI_CallUndoableCommand("Set User Data", [&]() -> GSErrCode {
+        return ACAPI_Element_SetUserData(&head, &ud);
+    });
+    BMKillHandle(&h);
+
+    if (err != NoError) {
+        lua_pushboolean(L, false);
+        lua_pushfstring(L, "SetUserData failed: err=%d", (int)err);
+        return 2;
+    }
+    lua_pushboolean(L, true);
+    return 1;
+}
+
+// getUserData(guid) -> table | (nil, err). Missing data is (nil, "no user data").
+static int GetUserData(lua_State* L)
+{
+    const char* guidStr = lua_tostring(L, 1);
+    if (guidStr == nullptr) {
+        lua_pushnil(L);
+        lua_pushstring(L, "expected a GUID string");
+        return 2;
+    }
+
+    API_Guid guid = APIGuidFromString(guidStr);
+    API_Elem_Head head = {};
+    head.guid = guid;
+    API_ElementUserData ud = {};
+    GSErrCode err = ACAPI_Element_GetUserData(&head, &ud, 0);
+    if (err != NoError || ud.dataHdl == nullptr) {
+        lua_pushnil(L);
+        if (err == APIERR_NOUSERDATA)
+            lua_pushstring(L, "no user data");
+        else
+            lua_pushfstring(L, "GetUserData failed: err=%d", (int)err);
+        return 2;
+    }
+
+    GSSize sz = BMGetHandleSize(ud.dataHdl);
+    std::string text(*ud.dataHdl, (size_t)sz);
+    BMKillHandle(&ud.dataHdl);
+    Json root = Json::Parse(text);
+    PushJsonVal(L, root);
+    return 1;
+}
+
+// deleteUserData(guid) -> true | (false, err).
+static int DeleteUserData(lua_State* L)
+{
+    const char* guidStr = lua_tostring(L, 1);
+    if (guidStr == nullptr) {
+        lua_pushboolean(L, false);
+        lua_pushstring(L, "expected a GUID string");
+        return 2;
+    }
+
+    API_Guid guid = APIGuidFromString(guidStr);
+    API_Elem_Head head = {};
+    head.guid = guid;
+    GSErrCode err = ACAPI_CallUndoableCommand("Delete User Data", [&]() -> GSErrCode {
+        API_Elem_Head h2 = head;
+        return ACAPI_UserData_DeleteUserData(&h2);
+    });
+    if (err != NoError) {
+        lua_pushboolean(L, false);
+        lua_pushfstring(L, "DeleteUserData failed: err=%d", (int)err);
+        return 2;
+    }
+    lua_pushboolean(L, true);
+    return 1;
+}
+
 // listParams(libInd) — diagnostic: array of {name, typeID, typeMod, value}
 // for every parameter of the part. typeMod: 0=simple, 2=array.
 static int ListParams(lua_State* L)
@@ -2723,7 +2846,7 @@ inline void SetObserverContext(lua_State* L, LuaDebugger* dbg)
 
 // Lua table -> Json (mirror of PushJsonToLua). Non-table scalars convert
 // directly; functions/userdata become null. Depth-limited (cycle guard).
-static Json LuaTableToJson(lua_State* L, int idx, int depth = 0)
+static Json LuaTableToJson(lua_State* L, int idx, int depth)
 {
     Json v;
     if (depth > 8)
@@ -2834,12 +2957,13 @@ static void PersistWatches()
     Json root;
     root.type = Json::Obj;
     for (const auto& [guid, entry] : WatchMap()) {
+        // Tuple form per ROADMAP: [func_url, kwargs].
         Json item;
-        item.type = Json::Obj;
+        item.type = Json::Arr;
         Json url;
         url.type = Json::Str;
         url.s = entry.funcUrl;
-        item.o.push_back({"func_url", url});
+        item.a.push_back(url);
         Json kw;
         kw.type = Json::Obj;
         if (entry.kwargsRef != LUA_NOREF) {
@@ -2849,7 +2973,7 @@ static void PersistWatches()
             if (kw.type != Json::Obj)
                 kw.type = Json::Obj;
         }
-        item.o.push_back({"kwargs", kw});
+        item.a.push_back(kw);
         root.o.push_back({guid, item});
     }
     std::string text = root.Dump();
@@ -2883,16 +3007,22 @@ static void RestoreWatches()
     for (size_t i = 0; i < root.o.size(); ++i) {
         const std::string& guidStr = root.o[i].first;
         const Json& item = root.o[i].second;
-        if (item.type != Json::Obj)
-            continue;
         std::string funcUrl;
         Json kwargs;
         kwargs.type = Json::Obj;
-        for (size_t k = 0; k < item.o.size(); ++k) {
-            if (item.o[k].first == "func_url" && item.o[k].second.type == Json::Str)
-                funcUrl = item.o[k].second.s;
-            else if (item.o[k].first == "kwargs" && item.o[k].second.type == Json::Obj)
-                kwargs = item.o[k].second;
+        if (item.type == Json::Arr && item.a.size() >= 2 &&
+            item.a[0].type == Json::Str && item.a[1].type == Json::Obj) {
+            funcUrl = item.a[0].s; // tuple form: [func_url, kwargs]
+            kwargs = item.a[1];
+        } else if (item.type == Json::Obj) {
+            for (size_t k = 0; k < item.o.size(); ++k) { // legacy object form
+                if (item.o[k].first == "func_url" && item.o[k].second.type == Json::Str)
+                    funcUrl = item.o[k].second.s;
+                else if (item.o[k].first == "kwargs" && item.o[k].second.type == Json::Obj)
+                    kwargs = item.o[k].second;
+            }
+        } else {
+            continue;
         }
         if (funcUrl.empty()) {
             pruned = true;
@@ -3204,6 +3334,15 @@ inline void Register(lua_State* L)
 
     lua_pushcfunction(L, ListParams);
     lua_setfield(L, -2, "listParams");
+
+    lua_pushcfunction(L, SetUserData);
+    lua_setfield(L, -2, "setUserData");
+
+    lua_pushcfunction(L, GetUserData);
+    lua_setfield(L, -2, "getUserData");
+
+    lua_pushcfunction(L, DeleteUserData);
+    lua_setfield(L, -2, "deleteUserData");
 
     lua_pushcfunction(L, AddWall);
     lua_setfield(L, -2, "addWall");

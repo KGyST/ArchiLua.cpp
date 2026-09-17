@@ -51,6 +51,10 @@ Undo batching: `beginUndo(label)` … `endUndo()` merges `set`/`setparams`/`dele
 
 `local list = acapi.listParams(libInd)` — diagnostic: `{name, typeID, typeMod, value}` per part parameter (`typeMod`: 0 = simple/settable, 2 = array).
 
+## Element user data
+
+`acapi.setUserData(guid, table)` — store a Lua table as JSON in the element record (any element type; undoable). `acapi.getUserData(guid)` — read it back (`nil, err` when absent). `acapi.deleteUserData(guid)` — remove it. Used by the divider demo: the row (`dividers`, `libInd`, `count`, `opts`) lives on the wall and travels with it through save/load (and undo).
+
 `local guid = acapi.addWall({ begC={x,y}, endC={x,y}, height, thickness, layer, floor })` — create a new straight wall. `floor` defaults to 1; also accepts `storey` as alias. Pass `poly` table (array of `{x,y}`) instead of `begC`/`endC` for a polygonal wall.
 
 `local guid = acapi.addWindow(wallGuid, { objLoc, height, width, sillHeight, refSide, oSide, mirrored })` — place a window in a straight wall. `refSide` and `oSide` (each `"inside"`/`"outside"`, mapping 1:1 to the stored mirror flags) and `mirrored` (bool) control orientation.

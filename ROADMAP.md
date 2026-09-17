@@ -76,7 +76,8 @@
   - Verified so far: one coalesced `edit` arrives at drop (no flood during drag). Reload-persistence restore not yet verified.
   - Do NOT implement watched-lists, UI observer panels, or complex C++ classes.
 
-- [ ] **Divider Demo (`try_dividers.lua`):**
+- [ ] **Divider Demo (`try_dividers.lua`, user-data row model):**
+  - Row (`dividers`, `libInd`, `count`, `opts`) lives ON THE WALL via generic `acapi.setUserData/getUserData/deleteUserData` (JSON handle, any element type, undoable) — source of truth, travels with the element through save/load/undo. Registry keeps UI prefs only. Behavior (not storage) is the delete function: every sync path (tick/manual/event, rotation rebuild, re-place) deletes listed panels and re-runs division fresh; `DIVCOUNT` configurable (setting vs live-row split).
   - Place 10 standalone divider panels (library objects on the wall centerline) on a picked wall, watch it, recompute XY from `begC`/`endC` and move them via `acapi.set(pos)` on wall `edit`/`change`. Panel part name is user-configurable (persisted in registry); panels removable via `acapi.delete`.
   - Verified end-to-end with a placeable part (`'ágy 01 27'`): row tiles the wall, params apply via post-create `Change`, drag/stretch sync follows.
   - Brick-laying params on place: `A` = division spacing (tiles the wall), `B` = wall width (auto, or fixed UI entry), `ZZYZX` = 0.25 (UI entry); all three re-applied via `setParams` on sync. Panel rotation follows the wall vector (`angle` on create); wall direction change deletes + recreates in 2 undo steps (`angle` is not `Change`-editable per DevKit).

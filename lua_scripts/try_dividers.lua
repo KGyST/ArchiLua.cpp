@@ -3,7 +3,7 @@
 -- On wall Change/Edit their XY positions are recomputed from the new begC/endC.
 
 -- Bump on every script change; shown in the dialog footer to verify what's running.
-local SCRIPT_VER = "2026-09-16t"
+local SCRIPT_VER = "2026-09-17u"
 
 local watchedWall = nil
 local dividers = {} -- divider entries {guid, angle}, in wall order
@@ -46,22 +46,71 @@ end
 -- Forward declaration: pruneStale (below) runs before the definition.
 local logEvent
 
--- Script globals die on every re-run while the C++ watch survives, so the
--- wall guid, divider guids/angles, libInd and watch flag persist in registry.
-local function persistState()
-    acapi.regWrite(REG_SEC, "wall", watchedWall or "")
-    acapi.regWrite(REG_SEC, "watched", watchedWall ~= nil and "true" or "false")
-    local gs, as, ds = {}, {}, {}
+-- Source of truth lives ON THE WALL (user data), travelling with the element
+-- through save/load (and undo — user-data ops are undoable). Registry keeps
+-- only UI prefs + the last-wall hint. Session table is a scratch cache.
+local function buildRow()
+    local row = { dividers = {}, libInd = dividers.libInd, count = ROW_N,
+                  opts = { zzyzx = opts.zzyzx, center = opts.center } }
+    if opts.b ~= nil then row.opts.b = opts.b end
     for i, d in ipairs(dividers) do
-        gs[i] = (type(d) == "table" and d.guid) or ""
-        as[i] = (type(d) == "table" and d.angle) and string.format("%.6f", d.angle) or "0"
-        ds[i] = (type(d) == "table" and d.dead) and "1" or "0"
+        if type(d) == "table" and d.guid then
+            local e = { guid = d.guid, angle = d.angle or 0 }
+            if d.dead then e.dead = true end
+            row.dividers[i] = e
+        end
     end
-    acapi.regWrite(REG_SEC, "dividers", table.concat(gs, ","))
-    acapi.regWrite(REG_SEC, "angles", table.concat(as, ","))
-    acapi.regWrite(REG_SEC, "dead", table.concat(ds, ","))
-    acapi.regWrite(REG_SEC, "libInd", dividers.libInd ~= nil and tostring(dividers.libInd) or "")
-    acapi.regWrite(REG_SEC, "rowCount", tostring(ROW_N))
+    return row
+end
+
+local function persistState()
+    if not watchedWall then return true end
+    local ok, err = acapi.setUserData(watchedWall, buildRow())
+    if not ok then
+        logEvent("user-data save failed: " .. tostring(err))
+    end
+    return ok
+end
+
+local function pushOptsToForm()
+    if opts.b ~= nil then
+        ExecuteJS(string.format("document.getElementById('panelB').value='%s';", tostring(opts.b)))
+    else
+        ExecuteJS("document.getElementById('panelB').value='';")
+    end
+    ExecuteJS(string.format("document.getElementById('panelZZ').value='%s';", tostring(opts.zzyzx)))
+    ExecuteJS(string.format("document.getElementById('centerDiv').checked=%s;",
+        opts.center and "true" or "false"))
+end
+
+-- Adopt a wall's user-data row into session state (table + opts + form).
+local function adoptRow(wallGuid, row)
+    dividers = {}
+    for i, e in ipairs(row.dividers or {}) do
+        if type(e) == "table" and e.guid and e.guid ~= "" then
+            dividers[i] = { guid = e.guid, angle = tonumber(e.angle) or 0 }
+            if e.dead then dividers[i].dead = true end
+        end
+    end
+    dividers.libInd = tonumber(row.libInd)
+    ROW_N = tonumber(row.count) or #dividers
+    if type(row.opts) == "table" then
+        if row.opts.b ~= nil then opts.b = tonumber(row.opts.b) end
+        if row.opts.zzyzx ~= nil then opts.zzyzx = tonumber(row.opts.zzyzx) or opts.zzyzx end
+        if row.opts.center ~= nil then opts.center = (row.opts.center == true) end
+        saveOpts()
+        pushOptsToForm()
+    end
+    watchedWall = wallGuid
+end
+
+-- Read-only row fetch (no side effects). Nil when the wall carries no row.
+local function readRow(wallGuid)
+    local row = acapi.getUserData(wallGuid)
+    if type(row) == "table" and type(row.dividers) == "table" then
+        return row
+    end
+    return nil
 end
 
 -- Mark entries currently unreachable (undo in flight, mid-drag states).
@@ -95,15 +144,6 @@ local function liveCount()
         end
     end
     return n
-end
-
-local function splitCsv(s)
-    local out = {}
-    if type(s) ~= "string" or s == "" then return out end
-    for part in s:gmatch("([^,]+)") do
-        table.insert(out, part)
-    end
-    return out
 end
 
 -- Detach wall + all panel watches (safe no-ops for dead guids).
@@ -217,8 +257,13 @@ local function refreshDividers(wallGuid)
     if not wall then
         return false, "wall not found"
     end
-    if #dividers == 0 then
+    local row = readRow(wallGuid)
+    if row then
+        adoptRow(wallGuid, row)
+    elseif #dividers == 0 then
         return false, "no dividers tracked (place first)"
+    else
+        persistState() -- one-time migration: legacy session row adopts into user data
     end
     markStale()
     if liveCount() == 0 then
@@ -289,9 +334,9 @@ local lastGuideTime = 0
 local lastSync = {}
 
 local function syncKey(wall)
-    return string.format("%.6f,%.6f,%.6f,%.6f,%s,%s,%s",
+    return string.format("%.6f,%.6f,%.6f,%.6f,%s,%s,%s,%s",
         wall.begC.x, wall.begC.y, wall.endC.x, wall.endC.y,
-        tostring(opts.b), tostring(opts.zzyzx), tostring(opts.center))
+        tostring(ROW_N), tostring(opts.b), tostring(opts.zzyzx), tostring(opts.center))
 end
 
 local lastFailMsg = nil
@@ -453,6 +498,39 @@ RegisterWebEvent("onPlaceDividers", function(args)
         return
     end
     watchedWall = guid
+    -- Adopt an existing user-data row when it matches (same part, or no part
+    -- typed): no duplicate placement. A different typed part forces replace.
+    do
+        local row = readRow(guid)
+        if row then
+            local rowLib = tonumber(row.libInd)
+            local wantInd, wantErr = nil, nil
+            if partName ~= "" then
+                wantInd, wantErr = resolvePart(partName)
+                if partName ~= "" and wantInd == nil then
+                    SetWebResult("part resolve failed: " .. tostring(wantErr))
+                    return
+                end
+            end
+            if wantInd == nil or rowLib == nil or wantInd == rowLib then
+                adoptRow(guid, row)
+                local wok2, werr2 = acapi.watch(guid, WATCHFUNC, { count = ROW_N })
+                if wok2 then
+                    for _, d in ipairs(dividers) do
+                        acapi.watch(d.guid, WATCHFUNC, { panel = true })
+                    end
+                    ExecuteJS("startTick();")
+                    local w2 = acapi.getWall(guid)
+                    if w2 then lastSync[guid] = syncKey(w2) end
+                    SetWebResult(string.format("Adopted %d dividers from wall data, watching", #dividers))
+                    logEvent("adopted row from user data")
+                else
+                    SetWebResult("watch failed: " .. tostring(werr2))
+                end
+                return
+            end
+        end
+    end
     ROW_N = opts.count -- the setting takes effect on Place; refresh keeps ROW_N
     markStale()
     if liveCount() > 0 then
@@ -623,7 +701,9 @@ RegisterWebEvent("onDeleteDividers", function()
         return
     end
     dividers = {}
-    persistState()
+    if watchedWall then
+        acapi.deleteUserData(watchedWall)
+    end
     ExecuteJS("stopTick();")
     SetWebResult(string.format("Deleted %d dividers", n))
 end)
@@ -632,10 +712,9 @@ RegisterWebEvent("onUnwatchDividers", function()
     if watchedWall then
         unwatchRow()
         ExecuteJS("stopTick();")
-        SetWebResult("Unwatched (points stay in the plan)")
+        SetWebResult("Unwatched (row kept on the wall — re-pick to re-adopt)")
         watchedWall = nil
         lastSync = {}
-        persistState()
     else
         SetWebResult("Nothing watched")
     end
@@ -741,32 +820,26 @@ do
         acapi.regRead(REG_SEC, "autoRef", "false") == "true" and "true" or "false"))
     ExecuteJS(string.format("document.getElementById('divCount').value='%d';", opts.count))
     ExecuteJS(string.format("document.getElementById('ver').textContent='try_dividers.lua %s';", SCRIPT_VER))
-    -- Restore previous session: wall + dividers survive re-runs (the C++ watch
-    -- does too), so refresh keeps working without re-placing.
+    -- Restore previous session: the row lives ON THE WALL (user data), so the
+    -- last wall is only a hint — adoption validates against the model.
+    -- Registry identity keys (dividers/angles/dead/libInd/rowCount) are retired.
     local w = acapi.regRead(REG_SEC, "wall", "")
     if type(w) == "string" and w ~= "" and acapi.getWall(w) then
-        watchedWall = w
-        local gs = splitCsv(acapi.regRead(REG_SEC, "dividers", ""))
-        local as = splitCsv(acapi.regRead(REG_SEC, "angles", ""))
-        local ds = splitCsv(acapi.regRead(REG_SEC, "dead", ""))
-        dividers = {}
-        for i, g in ipairs(gs) do
-            dividers[i] = { guid = g, angle = tonumber(as[i]) or 0 }
-            if ds[i] == "1" then
-                dividers[i].dead = true
+        local row = readRow(w)
+        if row then
+            adoptRow(w, row)
+            if acapi.regRead(REG_SEC, "watched", "false") == "true" and #dividers > 0 then
+                acapi.watch(w, WATCHFUNC, { count = ROW_N })
+                for _, d in ipairs(dividers) do
+                    if not d.dead then
+                        acapi.watch(d.guid, WATCHFUNC, { panel = true })
+                    end
+                end
+                ExecuteJS("startTick();")
+                logEvent("restored " .. #dividers .. " dividers from wall data, watching")
+            elseif #dividers > 0 then
+                logEvent("restored " .. #dividers .. " dividers from wall data (not watching)")
             end
-        end
-        dividers.libInd = tonumber(acapi.regRead(REG_SEC, "libInd", ""))
-        ROW_N = clampCount(acapi.regRead(REG_SEC, "rowCount", "")) or #dividers
-        if acapi.regRead(REG_SEC, "watched", "false") == "true" and #dividers > 0 then
-            acapi.watch(w, WATCHFUNC, { count = ROW_N })
-            for _, d in ipairs(dividers) do
-                acapi.watch(d.guid, WATCHFUNC, { panel = true })
-            end
-            ExecuteJS("startTick();")
-            logEvent("restored " .. #dividers .. " dividers, watching")
-        elseif #dividers > 0 then
-            logEvent("restored " .. #dividers .. " dividers (not watching)")
         end
     end
     -- Last log call = top line of the event panel: always shows what's running.

@@ -3,7 +3,7 @@
 -- On wall Change/Edit their XY positions are recomputed from the new begC/endC.
 
 -- Bump on every script change; shown in the dialog footer to verify what's running.
-local SCRIPT_VER = "2026-09-16q"
+local SCRIPT_VER = "2026-09-16r"
 
 local watchedWall = nil
 local dividers = {} -- divider entries {guid, angle}, in wall order
@@ -38,37 +38,49 @@ local logEvent
 local function persistState()
     acapi.regWrite(REG_SEC, "wall", watchedWall or "")
     acapi.regWrite(REG_SEC, "watched", watchedWall ~= nil and "true" or "false")
-    local gs, as = {}, {}
+    local gs, as, ds = {}, {}, {}
     for i, d in ipairs(dividers) do
-        gs[i] = d.guid
-        as[i] = string.format("%.6f", d.angle)
+        gs[i] = (type(d) == "table" and d.guid) or ""
+        as[i] = (type(d) == "table" and d.angle) and string.format("%.6f", d.angle) or "0"
+        ds[i] = (type(d) == "table" and d.dead) and "1" or "0"
     end
     acapi.regWrite(REG_SEC, "dividers", table.concat(gs, ","))
     acapi.regWrite(REG_SEC, "angles", table.concat(as, ","))
+    acapi.regWrite(REG_SEC, "dead", table.concat(ds, ","))
     acapi.regWrite(REG_SEC, "libInd", dividers.libInd ~= nil and tostring(dividers.libInd) or "")
 end
 
--- Drop entries whose elements no longer exist (hand-deleted in the plan,
--- orphans from before re-place cleared). Delete batches are all-or-nothing,
--- so one stale guid would fail the whole flush with APIERR_BADID.
-local function pruneStale()
-    local kept, dropped = {}, 0
+-- Mark entries currently unreachable (undo in flight, mid-drag states).
+-- Missing entries are SKIPPED by ops but KEPT: only an explicit kind="delete"
+-- (true deletion in plan), Delete Points, or re-place drops them — undo/redo
+-- tennis may restore identical guids, and dropping on first miss orphaned
+-- the row permanently. Delete batches stay safe (no dead guids flushed).
+local function markStale()
+    local missing = 0
     for _, d in ipairs(dividers) do
-        if type(d) == "table" and d.guid and acapi.get(d.guid) then
-            kept[#kept + 1] = d
-        else
-            dropped = dropped + 1
+        if type(d) == "table" and d.guid then
+            if acapi.get(d.guid) then
+                d.missing = nil
+            elseif not d.missing then
+                d.missing = true
+                missing = missing + 1
+            end
         end
     end
-    if dropped > 0 then
-        local li = dividers.libInd
-        dividers = {}
-        for i, d in ipairs(kept) do dividers[i] = d end
-        dividers.libInd = li
-        logEvent("pruned " .. dropped .. " stale dividers")
-        persistState()
+    if missing > 0 then
+        logEvent("suspect stale: " .. missing .. " unreachable (kept for redo)")
     end
-    return dropped
+    return missing
+end
+
+local function liveCount()
+    local n = 0
+    for _, d in ipairs(dividers) do
+        if type(d) == "table" and d.guid and not d.missing and not d.dead then
+            n = n + 1
+        end
+    end
+    return n
 end
 
 local function splitCsv(s)
@@ -194,9 +206,12 @@ local function refreshDividers(wallGuid)
     if #dividers == 0 then
         return false, "no dividers tracked (place first)"
     end
-    pruneStale()
-    if #dividers == 0 then
-        return false, "all dividers gone from the model"
+    markStale()
+    if liveCount() == 0 then
+        if #dividers == 0 then
+            return false, "no dividers tracked (place first)"
+        end
+        return false, "all dividers unreachable (redo may restore them)"
     end
     local dx = wall.endC.x - wall.begC.x
     local dy = wall.endC.y - wall.begC.y
@@ -206,15 +221,18 @@ local function refreshDividers(wallGuid)
     -- Partition: moves apply in place, direction changes need a rebuild
     -- (angle is not Change-editable). One syncRow call does moves + deletes
     -- + creates in a SINGLE undoable command (1 undo step total).
+    -- Missing (in-flight) entries are skipped, never sent.
     local moves, dels, creates, createIdx = {}, {}, {}, {}
     for i, d in ipairs(dividers) do
-        local p = divPoint(wall, spacing, newAngle, i)
-        if math.abs(newAngle - d.angle) > 1e-6 then
-            table.insert(dels, d.guid)
-            table.insert(creates, p)
-            table.insert(createIdx, i)
-        else
-            table.insert(moves, { guid = d.guid, x = p.x, y = p.y })
+        if not d.missing and not d.dead then
+            local p = divPoint(wall, spacing, newAngle, i)
+            if math.abs(newAngle - d.angle) > 1e-6 then
+                table.insert(dels, d.guid)
+                table.insert(creates, p)
+                table.insert(createIdx, i)
+            else
+                table.insert(moves, { guid = d.guid, x = p.x, y = p.y })
+            end
         end
     end
     local res, err = acapi.syncRow({
@@ -318,6 +336,29 @@ function onDividersWallEvent(guid, kwargs, kind)
         logEvent("undo/redo seen (" .. tostring(kind) .. "), will re-sync")
         return
     end
+    if kind == "delete" then
+        -- True deletion in plan (undo tennis arrives as undo/redo instead).
+        if guid == watchedWall then
+            unwatchRow()
+            watchedWall = nil
+            lastSync = {}
+            ExecuteJS("stopTick();")
+            persistState()
+            local msg = "Watched wall deleted — panels kept, re-pick a wall to re-watch"
+            SetWebResult(msg)
+            logEvent(msg)
+        else
+            for _, d in ipairs(dividers) do
+                if type(d) == "table" and d.guid == guid and not d.dead then
+                    d.dead = true -- tombstone: keeps slot mapping, skipped by ops
+                    persistState()
+                    logEvent("panel deleted in plan, slot kept empty")
+                    break
+                end
+            end
+        end
+        return
+    end
     if kind ~= "edit" and kind ~= "change" then
         return
     end
@@ -391,14 +432,17 @@ RegisterWebEvent("onPlaceDividers", function(args)
         return
     end
     watchedWall = guid
-    pruneStale()
-    if #dividers > 0 then
+    markStale()
+    if liveCount() > 0 then
         -- Re-place replaces: clear the previous row first, else it orphans.
         -- Abort on flush failure so we never stack a new row on a live old one.
+        -- Missing (in-flight) entries are skipped, never sent to delete.
         unwatchRow()
         acapi.beginUndo("Clear old dividers")
         for _, d in ipairs(dividers) do
-            acapi.delete(d.guid)
+            if not d.missing and not d.dead then
+                acapi.delete(d.guid)
+            end
         end
         local cok, cerr = acapi.endUndo()
         if not cok then
@@ -479,6 +523,32 @@ RegisterWebEvent("onToggleAuto", function(args)
     acapi.regWrite(REG_SEC, "autoRef", (args and args.enabled) and "true" or "false")
 end)
 
+RegisterWebEvent("onEnlistDividers", function()
+    -- Dumps the tracked table (slot, guid, state) to the event log panel.
+    if #dividers == 0 then
+        SetWebResult("No dividers tracked")
+        return
+    end
+    local live, n = 0, #dividers
+    for i, d in ipairs(dividers) do
+        local state = "?"
+        if type(d) ~= "table" or not d.guid then
+            state = "broken-entry"
+        elseif d.dead then
+            state = "dead"
+        elseif d.missing then
+            state = "missing"
+        elseif acapi.get(d.guid) then
+            state = "live"
+            live = live + 1
+        else
+            state = "unreachable-now"
+        end
+        logEvent(string.format("slot %d: %s [%s]", i, tostring(d.guid or "?"):sub(1, 8), state))
+    end
+    SetWebResult(string.format("Enlisted %d slots (%d live) — see event log", n, live))
+end)
+
 RegisterWebEvent("onRefreshDividers", function(args)
     applyFormArgs(args)
     if not watchedWall then
@@ -496,8 +566,8 @@ RegisterWebEvent("onRefreshDividers", function(args)
 end)
 
 RegisterWebEvent("onDeleteDividers", function()
-    pruneStale()
-    if #dividers == 0 then
+    markStale()
+    if liveCount() == 0 then
         SetWebResult("No dividers to delete")
         return
     end
@@ -505,7 +575,7 @@ RegisterWebEvent("onDeleteDividers", function()
     acapi.beginUndo("Delete dividers")
     local n = 0
     for _, d in ipairs(dividers) do
-        if acapi.delete(d.guid) then
+        if not d.missing and not d.dead and acapi.delete(d.guid) then
             n = n + 1
         end
     end
@@ -553,6 +623,7 @@ input{margin:4px 0;width:180px;}
 <button onclick='placeDividers()'>Pick Wall + Place Points</button>
 <button onclick='inspectPart()'>Inspect Part</button>
 <button onclick='refreshNow()'>Refresh Now</button>
+<button onclick="archilua.DispatchEvent('onEnlistDividers')">Enlist Dividers</button>
 </div>
 <div>
 <button onclick="archilua.DispatchEvent('onDeleteDividers')">Delete Points</button>
@@ -634,9 +705,13 @@ do
         watchedWall = w
         local gs = splitCsv(acapi.regRead(REG_SEC, "dividers", ""))
         local as = splitCsv(acapi.regRead(REG_SEC, "angles", ""))
+        local ds = splitCsv(acapi.regRead(REG_SEC, "dead", ""))
         dividers = {}
         for i, g in ipairs(gs) do
             dividers[i] = { guid = g, angle = tonumber(as[i]) or 0 }
+            if ds[i] == "1" then
+                dividers[i].dead = true
+            end
         end
         dividers.libInd = tonumber(acapi.regRead(REG_SEC, "libInd", ""))
         if acapi.regRead(REG_SEC, "watched", "false") == "true" and #dividers > 0 then

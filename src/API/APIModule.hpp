@@ -2982,14 +2982,38 @@ static void FlushPendingEdits()
         DispatchWatch(guid, "edit");
 }
 
+static const char* NotifyName(API_ElementDBEventID id)
+{
+    switch (id) {
+        case APINotifyElement_BeginEvents: return "BeginEvents";
+        case APINotifyElement_EndEvents: return "EndEvents";
+        case APINotifyElement_New: return "New";
+        case APINotifyElement_Copy: return "Copy";
+        case APINotifyElement_Change: return "Change";
+        case APINotifyElement_Edit: return "Edit";
+        case APINotifyElement_Delete: return "Delete";
+        case APINotifyElement_Undo_Created: return "Undo_Created";
+        case APINotifyElement_Undo_Modified: return "Undo_Modified";
+        case APINotifyElement_Undo_Deleted: return "Undo_Deleted";
+        case APINotifyElement_Redo_Created: return "Redo_Created";
+        case APINotifyElement_Redo_Modified: return "Redo_Modified";
+        case APINotifyElement_Redo_Deleted: return "Redo_Deleted";
+        case APINotifyElement_PropertyValueChange: return "PropertyValueChange";
+        case APINotifyElement_ClassificationChange: return "ClassificationChange";
+        default: return "?";
+    }
+}
+
 static GSErrCode __ACENV_CALL ObserverHandler(const API_NotifyElementType* et)
 {
     if (et == nullptr)
         return NoError;
     if (ObserverLogEnabled()) {
         GS::UniString guidU = APIGuidToString(et->elemHead.guid);
-        std::string msg = "observer: notif=" + std::to_string((int)et->notifID) +
-                          " guid=" + guidU.ToCStr().Get();
+        std::string guidStr(guidU.ToCStr().Get());
+        bool watched = WatchMap().find(guidStr) != WatchMap().end();
+        std::string msg = "observer: " + std::string(NotifyName(et->notifID)) +
+                          " guid=" + guidStr + (watched ? " [watched]" : "");
         ACAPI_WriteReport(msg.c_str(), false);
     }
     if (DispatchDepth() > 0)
@@ -3002,8 +3026,13 @@ static GSErrCode __ACENV_CALL ObserverHandler(const API_NotifyElementType* et)
     // NO writes may happen on this path (forbidden during undo/redo) — the
     // Lua callback must only flag for later, and DispatchWatch itself only
     // reads. Pending edits are left alone (a later Change flushes normally).
+    // A direct Delete is also forwarded (as "delete"): it is the ONLY signal
+    // that an element is truly gone, as opposed to transiently missing during
+    // undo/redo tennis (where redo may restore identical guids).
     const char* undoKind = nullptr;
-    if (et->notifID == APINotifyElement_Undo_Created ||
+    if (et->notifID == APINotifyElement_Delete) {
+        undoKind = "delete";
+    } else if (et->notifID == APINotifyElement_Undo_Created ||
         et->notifID == APINotifyElement_Undo_Modified ||
         et->notifID == APINotifyElement_Undo_Deleted) {
         undoKind = "undo";

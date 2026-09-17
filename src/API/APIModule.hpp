@@ -2962,8 +2962,30 @@ static GSErrCode __ACENV_CALL ObserverHandler(const API_NotifyElementType* et)
         FlushPendingEdits(); // burst ended (incl. drag-cancel with no Change)
         return NoError;
     }
+    // Undo/redo notifications: forwarded as-is so Lua can mark state dirty.
+    // NO writes may happen on this path (forbidden during undo/redo) — the
+    // Lua callback must only flag for later, and DispatchWatch itself only
+    // reads. Pending edits are left alone (a later Change flushes normally).
+    const char* undoKind = nullptr;
+    if (et->notifID == APINotifyElement_Undo_Created ||
+        et->notifID == APINotifyElement_Undo_Modified ||
+        et->notifID == APINotifyElement_Undo_Deleted) {
+        undoKind = "undo";
+    } else if (et->notifID == APINotifyElement_Redo_Created ||
+               et->notifID == APINotifyElement_Redo_Modified ||
+               et->notifID == APINotifyElement_Redo_Deleted) {
+        undoKind = "redo";
+    }
+    if (undoKind != nullptr) {
+        GS::UniString guidU = APIGuidToString(et->elemHead.guid);
+        std::string guidStr(guidU.ToCStr().Get());
+        if (WatchMap().find(guidStr) == WatchMap().end())
+            return NoError;
+        DispatchWatch(guidStr, undoKind);
+        return NoError;
+    }
     if (et->notifID != APINotifyElement_Change && et->notifID != APINotifyElement_Edit)
-        return NoError; // ignore property/classification/undo/redo/etc.
+        return NoError; // ignore property/classification/etc.
     GS::UniString guidU = APIGuidToString(et->elemHead.guid);
     std::string guidStr(guidU.ToCStr().Get());
     if (WatchMap().find(guidStr) == WatchMap().end())

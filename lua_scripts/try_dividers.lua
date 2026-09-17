@@ -3,12 +3,13 @@
 -- On wall Change/Edit their XY positions are recomputed from the new begC/endC.
 
 -- Bump on every script change; shown in the dialog footer to verify what's running.
-local SCRIPT_VER = "2026-09-16o"
+local SCRIPT_VER = "2026-09-16p"
 
 local watchedWall = nil
 local dividers = {} -- divider entries {guid, angle}, in wall order
 local DIV_COUNT = 10
 local REG_SEC = "try_dividers"
+local WATCHFUNC = "try_dividers.lua\\onDividersWallEvent"
 
 -- Panel options (persisted). b = nil means auto = wall thickness.
 local opts = { b = nil, zzyzx = 0.25, center = false }
@@ -77,6 +78,18 @@ local function splitCsv(s)
         table.insert(out, part)
     end
     return out
+end
+
+-- Detach wall + all panel watches (safe no-ops for dead guids).
+local function unwatchRow()
+    if watchedWall then
+        acapi.unwatch(watchedWall)
+    end
+    for _, d in ipairs(dividers) do
+        if type(d) == "table" and d.guid then
+            acapi.unwatch(d.guid)
+        end
+    end
 end
 
 -- Merge form values (all optional) into opts; persists.
@@ -211,8 +224,12 @@ local function refreshDividers(wallGuid)
     if not res then
         return false, tostring(err)
     end
+    for _, g in ipairs(dels) do
+        acapi.unwatch(g) -- deleted panels need no watch (safe no-op if auto-detached)
+    end
     for k, i in ipairs(createIdx) do
         dividers[i] = { guid = res.created[k], angle = newAngle }
+        acapi.watch(res.created[k], WATCHFUNC, { panel = true })
     end
     persistState() -- guids may have changed on rotation rebuild
     return true
@@ -292,8 +309,19 @@ local function handleWallSync(guid, kind)
 end
 
 function onDividersWallEvent(guid, kwargs, kind)
+    if kind == "undo" or kind == "redo" then
+        -- During undo/redo notifications NO ArchiCAD calls that write may run
+        -- (not even getWall is touched here) — just flag; the heartbeat or the
+        -- next event performs the actual re-sync from safe context.
+        syncDirty = true
+        logEvent("undo/redo seen (" .. tostring(kind) .. "), will re-sync")
+        return
+    end
     if kind ~= "edit" and kind ~= "change" then
         return
+    end
+    if guid ~= watchedWall then
+        return -- a panel's own edit/change; the row follows the wall only
     end
     handleWallSync(guid, kind)
 end
@@ -336,6 +364,7 @@ RegisterWebEvent("onPlaceDividers", function(args)
     if #dividers > 0 then
         -- Re-place replaces: clear the previous row first, else it orphans.
         -- Abort on flush failure so we never stack a new row on a live old one.
+        unwatchRow()
         acapi.beginUndo("Clear old dividers")
         for _, d in ipairs(dividers) do
             acapi.delete(d.guid)
@@ -353,8 +382,11 @@ RegisterWebEvent("onPlaceDividers", function(args)
         SetWebResult("place failed: " .. tostring(info))
         return
     end
-    local wok, werr = acapi.watch(guid, "try_dividers.lua\\onDividersWallEvent", { count = DIV_COUNT })
+    local wok, werr = acapi.watch(guid, WATCHFUNC, { count = DIV_COUNT })
     if wok then
+        for _, d in ipairs(dividers) do
+            acapi.watch(d.guid, WATCHFUNC, { panel = true })
+        end
         ExecuteJS("startTick();")
         local w = acapi.getWall(guid)
         if w then lastSync[guid] = syncKey(w) end
@@ -438,6 +470,7 @@ RegisterWebEvent("onDeleteDividers", function()
         SetWebResult("No dividers to delete")
         return
     end
+    unwatchRow()
     acapi.beginUndo("Delete dividers")
     local n = 0
     for _, d in ipairs(dividers) do
@@ -458,7 +491,7 @@ end)
 
 RegisterWebEvent("onUnwatchDividers", function()
     if watchedWall then
-        acapi.unwatch(watchedWall)
+        unwatchRow()
         ExecuteJS("stopTick();")
         SetWebResult("Unwatched (points stay in the plan)")
         watchedWall = nil
@@ -576,7 +609,10 @@ do
         end
         dividers.libInd = tonumber(acapi.regRead(REG_SEC, "libInd", ""))
         if acapi.regRead(REG_SEC, "watched", "false") == "true" and #dividers > 0 then
-            acapi.watch(w, "try_dividers.lua\\onDividersWallEvent", { count = DIV_COUNT })
+            acapi.watch(w, WATCHFUNC, { count = DIV_COUNT })
+            for _, d in ipairs(dividers) do
+                acapi.watch(d.guid, WATCHFUNC, { panel = true })
+            end
             ExecuteJS("startTick();")
             logEvent("restored " .. #dividers .. " dividers, watching")
         elseif #dividers > 0 then

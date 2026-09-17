@@ -3,7 +3,7 @@
 -- On wall Change/Edit their XY positions are recomputed from the new begC/endC.
 
 -- Bump on every script change; shown in the dialog footer to verify what's running.
-local SCRIPT_VER = "2026-09-16r"
+local SCRIPT_VER = "2026-09-16s"
 
 local watchedWall = nil
 local dividers = {} -- divider entries {guid, angle}, in wall order
@@ -280,9 +280,12 @@ local function syncKey(wall)
         tostring(opts.b), tostring(opts.zzyzx), tostring(opts.center))
 end
 
+local lastFailMsg = nil
+
 local function reportSync(kind, ok, info)
     if ok then
         syncDirty = false
+        lastFailMsg = nil
         local msg = string.format("Dividers synced (%s): %d points", tostring(kind), #dividers)
         SetWebResult(msg)
         logEvent(msg)
@@ -299,6 +302,10 @@ local function reportSync(kind, ok, info)
         return
     end
     local msg = "Dividers sync failed (" .. tostring(kind) .. "): " .. tostring(info)
+    if msg == lastFailMsg then
+        return -- identical repeat (e.g. tick on a dead row): retry stays silent
+    end
+    lastFailMsg = msg
     SetWebResult(msg)
     logEvent(msg)
 end
@@ -462,6 +469,7 @@ RegisterWebEvent("onPlaceDividers", function(args)
         for _, d in ipairs(dividers) do
             acapi.watch(d.guid, WATCHFUNC, { panel = true })
         end
+        lastFailMsg = nil -- fresh row, old failure texts must show again if they recur
         ExecuteJS("startTick();")
         local w = acapi.getWall(guid)
         if w then lastSync[guid] = syncKey(w) end

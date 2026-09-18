@@ -3,7 +3,7 @@
 -- On wall Change/Edit their XY positions are recomputed from the new begC/endC.
 
 -- Bump on every script change; shown in the dialog footer to verify what's running.
-local SCRIPT_VER = "2026-09-17v"
+local SCRIPT_VER = "2026-09-17w"
 
 local watchedWall = nil
 local dividers = {} -- divider entries {guid, angle}, in wall order
@@ -43,8 +43,10 @@ local function effB(wall)
     return opts.b or wall.thickness
 end
 
--- Forward declaration: pruneStale (below) runs before the definition.
+-- Forward declarations: these run before their definitions below
+-- (Lua resolves locals lexically — without this they bind to nil globals).
 local logEvent
+local resolvePart
 
 -- Source of truth lives ON THE WALL (user data), travelling with the element
 -- through save/load (and undo — user-data ops are undoable). Registry keeps
@@ -234,7 +236,7 @@ local function divPoint(wall, spacing, ang, i)
     return p
 end
 
-local function resolvePart(name)
+resolvePart = function(name)
     if not name or name == "" then
         return nil, "enter a library part name first"
     end

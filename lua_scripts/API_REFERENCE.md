@@ -53,7 +53,7 @@ Undo batching: `beginUndo(label)` … `endUndo()` merges `set`/`setparams`/`dele
 
 ## Element user data
 
-`acapi.setUserData(guid, table)` — store a Lua table as JSON in the element record (any element type; undoable). `acapi.getUserData(guid)` — read it back (`nil, err` when absent). `acapi.deleteUserData(guid)` — remove it. Used by the divider demo: the row (`dividers`, `libInd`, `count`, `opts`) lives on the wall and travels with it through save/load (and undo).
+`acapi.setUserData(guid, table)` — store a Lua table as JSON in the element record (any element type; undoable). `acapi.getUserData(guid)` — read it back (`nil, err` when absent). `acapi.deleteUserData(guid)` — remove it. Used by the divider demo as an ownership ledger: `userData["try_dividers.lua"] = {children = {{guid, angle[, dead]}}, partName, count, rev, opts, wall = {begC, endC}}` (`rev` bumped per effective persist; the tick detects silent user-data undos by rev mismatch and adopts read-only). Each script owns only its own key (foreign keys preserved on write, never read); legacy flat rows are read-tolerant, write-strict. Per-wall params are authoritative in the entry; the Windows registry holds only last-used defaults that prefill the form for walls without an entry. Identical persists are skipped (no gratuitous undo units).
 
 `local guid = acapi.addWall({ begC={x,y}, endC={x,y}, height, thickness, layer, floor })` — create a new straight wall. `floor` defaults to 1; also accepts `storey` as alias. Pass `poly` table (array of `{x,y}`) instead of `begC`/`endC` for a polygonal wall.
 

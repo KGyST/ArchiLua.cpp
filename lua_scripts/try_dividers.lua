@@ -3,7 +3,7 @@
 -- On wall Change/Edit their XY positions are recomputed from the new begC/endC.
 
 -- Bump on every script change; shown in the dialog footer to verify what's running.
-local SCRIPT_VER = "2026-09-17w"
+local SCRIPT_VER = "260922e"
 
 local watchedWall = nil
 local dividers = {} -- divider entries {guid, angle}, in wall order
@@ -13,6 +13,9 @@ local REG_SEC = "try_dividers"
 -- takes effect on next Place, so a live row's slot mapping never shifts.
 local ROW_N = DIV_COUNT_DEFAULT
 local WATCHFUNC = "try_dividers.lua\\onDividersWallEvent"
+local ROW_KEY = "try_dividers.lua" -- ledger namespace: this script owns only
+                                   -- userData[ROW_KEY]; foreign keys are preserved
+                                   -- on every write, never read
 
 -- Panel options (persisted). b = nil means auto = wall thickness.
 local opts = { b = nil, zzyzx = 0.25, center = false, count = DIV_COUNT_DEFAULT }
@@ -47,32 +50,171 @@ end
 -- (Lua resolves locals lexically — without this they bind to nil globals).
 local logEvent
 local resolvePart
+local lastRev -- entry revision mirror (see sync section)
+local dirtyCause -- what dirtied the tick: "drag"/"undo"/"redo"/nil
+local panelsDiverged -- defined late (needs wall helpers); guard callers above it
+local lastSync -- session last-synced keys; repairRow (above) refreshes it
+local syncKey -- key builder; defined late next to lastSync
 
--- Source of truth lives ON THE WALL (user data), travelling with the element
--- through save/load (and undo — user-data ops are undoable). Registry keeps
--- only UI prefs + the last-wall hint. Session table is a scratch cache.
--- Library indices are session-volatile (DevKit: "not constant through the
--- whole life of the project") — persist the stable document NAME, resolve
--- to a fresh libInd on every adopt/place/restore.
-local function buildRow()
-    local row = { dividers = {}, partName = dividers.partName, count = ROW_N,
-                  opts = { zzyzx = opts.zzyzx, center = opts.center } }
-    if opts.b ~= nil then row.opts.b = opts.b end
+-- Ownership ledger lives ON THE WALL (user data): userData[ROW_KEY] =
+-- {children={{guid,angle[,dead]}}, partName, count, opts, wall={begC,endC}}.
+-- Travelling with the element through save/load (user-data ops are undoable).
+-- Per-wall params live in the entry; the registry holds only last-used
+-- DEFAULTS prefilling the form for walls without an entry. Foreign keys
+-- (other scripts' entries) are preserved on every write, never touched.
+-- Legacy flat rows ({dividers, ...}) are read-tolerant, write-strict:
+-- normalized on adopt, wiped on load.
+
+-- Full-ledger fetch (no side effects). Returns a table (possibly empty).
+local function readLedger(wallGuid)
+    local ud = acapi.getUserData(wallGuid)
+    if type(ud) == "table" then
+        return ud
+    end
+    return {}
+end
+
+-- Own entry fetch. Normalizes legacy flat rows to entry shape.
+-- Returns entry or nil; second return true when the source was legacy.
+local function readEntry(wallGuid)
+    local ud = acapi.getUserData(wallGuid)
+    if type(ud) ~= "table" then
+        return nil
+    end
+    if type(ud[ROW_KEY]) == "table" then
+        return ud[ROW_KEY], false
+    end
+    if type(ud.dividers) == "table" then
+        return {
+            children = ud.dividers,
+            partName = ud.partName,
+            count = ud.count,
+            opts = ud.opts,
+        }, true
+    end
+    return nil
+end
+
+-- All owned guids in an entry (children or legacy dividers).
+local function entryGuids(entry)
+    local out = {}
+    for _, e in ipairs(entry.children or entry.dividers or {}) do
+        if type(e) == "table" and e.guid and e.guid ~= "" then
+            out[#out + 1] = e.guid
+        end
+    end
+    return out
+end
+
+-- rev classifies stack walks: the tick detects silent user-data undos/redos
+-- (which notify nothing) by rev mismatch and adopts read-only. Bumped on
+-- every effective persist, skipped on no-op persists (change-detected).
+local function buildEntry(wall, rev)
+    local entry = { children = {}, partName = dividers.partName, count = ROW_N,
+                    rev = rev, opts = { zzyzx = opts.zzyzx, center = opts.center } }
+    if opts.b ~= nil then entry.opts.b = opts.b end
     for i, d in ipairs(dividers) do
         if type(d) == "table" and d.guid then
             local e = { guid = d.guid, angle = d.angle or 0 }
             if d.dead then e.dead = true end
-            row.dividers[i] = e
+            entry.children[i] = e
         end
     end
-    return row
+    if wall and wall.begC and wall.endC then
+        entry.wall = { begC = { x = wall.begC.x, y = wall.begC.y },
+                       endC = { x = wall.endC.x, y = wall.endC.y } }
+    end
+    return entry
 end
 
-local function persistState()
+-- Read-modify-write of OWN entry only (foreign keys preserved).
+-- Legacy residue is replaced (its children were wiped at load).
+-- Change-detected: an identical entry skips the write (no gratuitous unit —
+-- every skipped write is a redo stack saved, and unchanged persists are the
+-- ones that clobber concurrent writers with stale blobs).
+-- Display-only: JSON round-trips integers as floats ("rev=2.0"); show whole
+-- numbers without the .0 (storage and arithmetic untouched).
+local function revStr(v)
+    local n = tonumber(v)
+    if n == nil then return "none" end
+    local i = math.tointeger(n)
+    if i ~= nil then return tostring(i) end
+    return tostring(n)
+end
+
+local function numEq(a, b)
+    if a == nil and b == nil then return true end
+    if a == nil or b == nil then return false end
+    return math.abs(tonumber(a) - tonumber(b)) < 1e-9
+end
+
+local function sameEntry(a, b) -- semantic compare, ignoring rev/wall stamps
+    if type(a) ~= "table" or type(b) ~= "table" then return false end
+    if a.partName ~= b.partName then return false end
+    if not numEq(a.count, b.count) then return false end
+    local ao, bo = a.opts or {}, b.opts or {}
+    if not numEq(ao.zzyzx, bo.zzyzx) then return false end
+    if (ao.center and true or false) ~= (bo.center and true or false) then return false end
+    if not numEq(ao.b, bo.b) then return false end
+    local ac, bc = a.children or {}, b.children or {}
+    if #ac ~= #bc then return false end
+    for i, e in ipairs(ac) do
+        local f = bc[i]
+        if type(f) ~= "table" or e.guid ~= f.guid then return false end
+        if not numEq(e.angle or 0, f.angle or 0) then return false end
+        if (e.dead and true or false) ~= (f.dead and true or false) then return false end
+    end
+    return true
+end
+
+local function persistState(wall)
     if not watchedWall then return true end
-    local ok, err = acapi.setUserData(watchedWall, buildRow())
+    local ledger = readLedger(watchedWall)
+    if type(ledger.dividers) == "table" and ledger[ROW_KEY] == nil then
+        ledger = {} -- legacy residue: own entry starts clean
+    end
+    if wall == nil then
+        wall = acapi.getWall(watchedWall)
+    end
+    local prev = ledger[ROW_KEY]
+    local prevRev = (type(prev) == "table" and tonumber(prev.rev)) or 0
+    local entry = buildEntry(wall, prevRev + 1)
+    if sameEntry(entry, prev) then
+        lastRev = prevRev -- no-op persist: session already mirrors storage
+        return true
+    end
+    ledger[ROW_KEY] = entry
+    local ok, err = acapi.setUserData(watchedWall, ledger)
     if not ok then
         logEvent("user-data save failed: " .. tostring(err))
+        return ok
+    end
+    lastRev = prevRev + 1
+    return ok
+end
+
+-- Remove OWN entry, keep the objects. Preserves foreign keys; deletes the
+-- user data only when nothing else remains.
+local function clearEntry(wallGuid)
+    if not wallGuid then return true end
+    local ledger = readLedger(wallGuid)
+    local hadLegacy = type(ledger.dividers) == "table" and ledger[ROW_KEY] == nil
+    ledger[ROW_KEY] = nil
+    if hadLegacy then
+        ledger.dividers = nil
+        ledger.partName = nil
+        ledger.count = nil
+        ledger.opts = nil
+        ledger.libInd = nil
+    end
+    local empty = true
+    for _ in pairs(ledger) do empty = false break end
+    if empty then
+        return acapi.deleteUserData(wallGuid)
+    end
+    local ok, err = acapi.setUserData(wallGuid, ledger)
+    if not ok then
+        logEvent("user-data clear failed: " .. tostring(err))
     end
     return ok
 end
@@ -86,6 +228,7 @@ local function pushOptsToForm()
     ExecuteJS(string.format("document.getElementById('panelZZ').value='%s';", tostring(opts.zzyzx)))
     ExecuteJS(string.format("document.getElementById('centerDiv').checked=%s;",
         opts.center and "true" or "false"))
+    ExecuteJS(string.format("document.getElementById('divCount').value='%d';", opts.count))
 end
 
 -- Resolve a fresh libInd (indices are session-volatile); fails loudly when
@@ -107,10 +250,15 @@ local function resolveRowPart(row)
     return nil, "row has neither partName nor libInd — re-place"
 end
 
--- Adopt a wall's user-data row into session state (table + opts + form).
-local function adoptRow(wallGuid, row)
+-- Adopt a wall's ledger entry into session state (table + opts + form).
+-- First contact only: with keepOpts (refresh path) the divider identity
+-- (guids, part, count) is adopted but live session opts (just typed in the
+-- form) win — otherwise every refresh would revert the fresh edits to the
+-- stored copy. Full adopt (place/restore) takes entry.opts as truth and never
+-- writes them back to the registry: registry holds pre-wall defaults only.
+local function adoptRow(wallGuid, row, keepOpts)
     dividers = {}
-    for i, e in ipairs(row.dividers or {}) do
+    for i, e in ipairs(row.children or row.dividers or {}) do
         if type(e) == "table" and e.guid and e.guid ~= "" then
             dividers[i] = { guid = e.guid, angle = tonumber(e.angle) or 0 }
             if e.dead then dividers[i].dead = true end
@@ -123,24 +271,18 @@ local function adoptRow(wallGuid, row)
     dividers.libInd = libInd
     dividers.partName = row.partName -- stable identity; libInd re-resolves per refresh
     ROW_N = tonumber(row.count) or #dividers
-    if type(row.opts) == "table" then
+    opts.count = ROW_N -- session follows the live row; registry keeps the
+                       -- pre-wall default for walls without a row
+    local er = tonumber(row.rev)
+    if er ~= nil then lastRev = er end -- session tracks the entry revision
+    if not keepOpts and type(row.opts) == "table" then
         if row.opts.b ~= nil then opts.b = tonumber(row.opts.b) end
         if row.opts.zzyzx ~= nil then opts.zzyzx = tonumber(row.opts.zzyzx) or opts.zzyzx end
         if row.opts.center ~= nil then opts.center = (row.opts.center == true) end
-        saveOpts()
         pushOptsToForm()
     end
     watchedWall = wallGuid
     return true
-end
-
--- Read-only row fetch (no side effects). Nil when the wall carries no row.
-local function readRow(wallGuid)
-    local row = acapi.getUserData(wallGuid)
-    if type(row) == "table" and type(row.dividers) == "table" then
-        return row
-    end
-    return nil
 end
 
 -- Mark entries currently unreachable (undo in flight, mid-drag states).
@@ -280,7 +422,7 @@ local function placeDividers(wallGuid, partName)
     -- partName below is the stable identity re-resolved on every refresh)
     dividers.libInd = libInd
     dividers.partName = partName
-    persistState()
+    persistState(wall)
     return true, foundName .. " (" .. tostring(info) .. ")"
 end
 
@@ -289,23 +431,25 @@ local function refreshDividers(wallGuid)
     if not wall then
         return false, "wall not found"
     end
-    local row = readRow(wallGuid)
+    local row = readEntry(wallGuid)
     if row then
-        local aok, aerr = adoptRow(wallGuid, row)
+        -- Identity adopt: session/form opts (fresh edits) win over the stored
+        -- copy; the entry is rewritten with them at the end of this refresh.
+        local aok, aerr = adoptRow(wallGuid, row, true)
         if not aok then
             return false, aerr
         end
     elseif #dividers == 0 then
         return false, "no dividers tracked (place first)"
     else
-        persistState() -- one-time migration: legacy session row adopts into user data
+        persistState(wall) -- one-time migration: legacy session row adopts into user data
     end
     markStale()
     if liveCount() == 0 then
         if #dividers == 0 then
             return false, "no dividers tracked (place first)"
         end
-        return false, "all dividers unreachable (redo may restore them)"
+        return false, "all dividers unreachable (redo may restore them; Refresh repairs, Delete Points discards)"
     end
     local dx = wall.endC.x - wall.begC.x
     local dy = wall.endC.y - wall.begC.y
@@ -343,8 +487,80 @@ local function refreshDividers(wallGuid)
         dividers[i] = { guid = res.created[k], angle = newAngle }
         acapi.watch(res.created[k], WATCHFUNC, { panel = true })
     end
-    persistState() -- guids may have changed on rotation rebuild
+    persistState(wall) -- guids may have changed on rotation rebuild
     return true
+end
+
+-- Manual repair (Refresh button only, never the tick): rebuild an orphaned
+-- entry at CURRENT wall geometry. Deletes live remnants, re-places non-dead
+-- slots via createMany in its own command, rewrites the entry. Tombstoned
+-- slots (panels deliberately deleted in plan) stay empty. The wall is never
+-- moved by the script; deliberate undos are never resurrected behind the
+-- user's back (that would trap undo and duplicate on redo-tennis).
+local function repairRow(wallGuid, entry)
+    local libInd, err = resolveRowPart(entry)
+    if not libInd then
+        return false, err
+    end
+    local wall = acapi.getWall(wallGuid)
+    if not wall then
+        return false, "wall not found"
+    end
+    local wallLen = math.sqrt((wall.endC.x - wall.begC.x) ^ 2 + (wall.endC.y - wall.begC.y) ^ 2)
+    local spacing = wallLen / ROW_N
+    local params = { A = spacing, B = effB(wall), ZZYZX = opts.zzyzx }
+    local ang = wallAngle(wall)
+    markStale()
+    local remnant = {}
+    for _, d in ipairs(dividers) do
+        if type(d) == "table" and d.guid and not d.missing and not d.dead and acapi.get(d.guid) then
+            remnant[#remnant + 1] = d.guid
+        end
+    end
+    if #remnant > 0 then
+        acapi.beginUndo("Clear remnants")
+        for _, g in ipairs(remnant) do
+            acapi.delete(g)
+        end
+        local cok, cerr = acapi.endUndo()
+        if not cok then
+            return false, tostring(cerr)
+        end
+        for _, g in ipairs(remnant) do
+            acapi.unwatch(g)
+        end
+    end
+    local slots = entry.children or entry.dividers or {}
+    local positions, slotIdx = {}, {}
+    for i = 1, ROW_N do
+        local child = slots[i]
+        if not (type(child) == "table" and child.dead) then
+            positions[#positions + 1] = divPoint(wall, spacing, ang, i)
+            slotIdx[#slotIdx + 1] = i
+        end
+    end
+    if #positions == 0 then
+        return false, "all slots tombstoned — Delete Points to discard the row"
+    end
+    local guids, info = acapi.createMany(libInd, positions, params)
+    if not guids then
+        return false, info
+    end
+    dividers = {}
+    for k, i in ipairs(slotIdx) do
+        dividers[i] = { guid = guids[k], angle = ang }
+        acapi.watch(guids[k], WATCHFUNC, { panel = true })
+    end
+    for i, child in ipairs(slots) do
+        if type(child) == "table" and child.dead and not dividers[i] then
+            dividers[i] = { guid = child.guid, angle = tonumber(child.angle) or 0, dead = true }
+        end
+    end
+    dividers.libInd = libInd
+    dividers.partName = entry.partName
+    persistState(wall)
+    lastSync[wallGuid] = syncKey(wall)
+    return true, info
 end
 
 local eventLogCount = 0
@@ -362,23 +578,38 @@ end
 -- the JS heartbeat (same safe context as button clicks) performs the real sync.
 local syncDirty = false
 local lastGuideTime = 0
+-- Post-undo/redo inhibit: settling Change/Edit notifications arrive with
+-- unchanged geometry right after a rollback; syncing them opens a new
+-- transaction that wipes the redo stack for nothing. While armed, all
+-- write-syncs become adopt-only. Armed on undo/redo events, disarmed by any
+-- explicit user action (place/refresh/delete/unwatch) or a geometry change
+-- (fresh drag); the timestamp lapses on its own so it cannot stick.
+local inhibitUntil = 0
+local inhibitGeom = nil
+-- Entry revision mirror (bumped on every effective persist) + what dirtied
+-- the tick. dirtyCause "undo"/"redo" (and silent rev mismatches) force the
+-- read-only adopt path: opening any transaction there would wipe a pending redo.
+-- (lastRev/dirtyCause forward-declared at top, initialized nil implicitly.)
 
 -- Last synced wall state per guid (geometry + opts). The drop fires both a
 -- flushed edit AND a change; the second run would redo identical work as its
 -- own undo step (generic set() has no change detection), so it is skipped.
-local lastSync = {}
+-- (forward-declared at top for repairRow; initialized here at load.)
+lastSync = {}
 
-local function syncKey(wall)
+syncKey = function(wall)
     return string.format("%.6f,%.6f,%.6f,%.6f,%s,%s,%s,%s",
         wall.begC.x, wall.begC.y, wall.endC.x, wall.endC.y,
         tostring(ROW_N), tostring(opts.b), tostring(opts.zzyzx), tostring(opts.center))
 end
 
 local lastFailMsg = nil
+local lastSuppressMsg = nil -- dedupe for the inhibit-suppressed line above
 
 local function reportSync(kind, ok, info)
     if ok then
         syncDirty = false
+        dirtyCause = nil -- consumed: future ticks judge rev-mismatch on merits
         lastFailMsg = nil
         local msg = string.format("Dividers synced (%s): %d points", tostring(kind), #dividers)
         SetWebResult(msg)
@@ -404,6 +635,49 @@ local function reportSync(kind, ok, info)
     logEvent(msg)
 end
 
+-- Read-only adopt of the natively versioned entry (undo/redo legs and silent
+-- rev mismatches). Full adopt (entry is time-traveled truth, form follows),
+-- zero writes: opening any transaction here would wipe a pending redo.
+-- Returns false only when adoption itself fails.
+local function readonlyAdopt(tag)
+    local entry = readEntry(watchedWall)
+    if entry == nil then
+        dividers = {}
+        lastRev = nil
+        logEvent(tag .. ": adopted absence (pre-place stack position)")
+        return true
+    end
+    local aok, aerr = adoptRow(watchedWall, entry)
+    if not aok then
+        logEvent(tag .. " adopt failed: " .. tostring(aerr))
+        return false
+    end
+    markStale()
+    logEvent(string.format("%s: adopted (read-only) rev=%s (%d live)",
+        tag, revStr(entry.rev), liveCount()))
+    return true
+end
+
+-- Reverted-sync guidance (read-only): a moved-back sync means the wall undo
+-- is next — rewriting it would trap wall-undo behind auto-redo. Shared by
+-- the tick paths so the message stays identical everywhere.
+-- No time-window gate: fresh drags always arrive with synchronous edit/change
+-- events (direct try-sync + dirty retry), so unattributed divergence is always
+-- rollback aftermath — guide, never rewrite. Writes require cause=="drag" or
+-- a manual button; an earlier time-gated variant proved fall-through writes.
+local function guideIfDiverged(wall)
+    if panelsDiverged(wall) then
+        if os.time() - lastGuideTime >= 10 then
+            lastGuideTime = os.time()
+            local msg = "Divider sync was undone — Ctrl+Z again undoes the wall move"
+            SetWebResult(msg)
+            logEvent(msg)
+        end
+        return true
+    end
+    return false
+end
+
 local function handleWallSync(guid, kind)
     if #dividers == 0 then
         -- Empty row: wall moves alone. Say so (silence here caused confusion);
@@ -421,6 +695,35 @@ local function handleWallSync(guid, kind)
         logEvent("unchanged, skipped (" .. tostring(kind) .. ")")
         return
     end
+    -- Post-undo inhibit: settling notifications carry post-rollback geometry;
+    -- syncing them opens a unit that wipes redo for nothing. Suppress while
+    -- geometry matches the latched snapshot; a changed geometry is a fresh
+    -- drag (edit/change refresh the wall, undo/redo never do) → disarm and
+    -- proceed, its redo wipe being standard and correct.
+    if os.time() < inhibitUntil then
+        local g = wall and wall.begC and wall.endC and string.format("%.6f,%.6f,%.6f,%.6f",
+            wall.begC.x, wall.begC.y, wall.endC.x, wall.endC.y) or nil
+        if inhibitGeom ~= nil and g ~= nil and g ~= inhibitGeom then
+            inhibitUntil = 0
+            inhibitGeom = nil
+            lastSuppressMsg = nil
+        else
+            if inhibitGeom == nil then inhibitGeom = g end
+            if readonlyAdopt("inhibit") then
+                lastSync[watchedWall] = syncKey(wall)
+            end
+            local msg = "Sync suppressed (post-undo inhibit) — redo preserved"
+            if msg ~= lastSuppressMsg then
+                lastSuppressMsg = msg
+                SetWebResult(msg)
+                logEvent(msg)
+            end
+            return
+        end
+    else
+        inhibitGeom = nil
+    end
+    lastSuppressMsg = nil
     local ok, info = refreshDividers(guid)
     if ok and key ~= nil then
         lastSync[guid] = key
@@ -431,10 +734,15 @@ end
 function onDividersWallEvent(guid, kwargs, kind)
     if kind == "undo" or kind == "redo" then
         -- During undo/redo notifications NO ArchiCAD calls that write may run
-        -- (not even getWall is touched here) — just flag; the heartbeat or the
-        -- next event performs the actual re-sync from safe context.
+        -- (not even getWall is touched here) — just flag with cause; the
+        -- heartbeat adopts read-only (never syncs: any write wipes redo).
         syncDirty = true
-        logEvent("undo/redo seen (" .. tostring(kind) .. "), will re-sync")
+        dirtyCause = kind
+        if guid == watchedWall then
+            inhibitUntil = os.time() + 4 -- settling writes suppressed (redo preserved)
+            inhibitGeom = nil -- re-anchor on next gate hit (stack walks move geometry)
+        end
+        logEvent("undo/redo seen (" .. tostring(kind) .. "), will adopt read-only")
         return
     end
     if kind == "delete" then
@@ -443,6 +751,9 @@ function onDividersWallEvent(guid, kwargs, kind)
             unwatchRow()
             watchedWall = nil
             lastSync = {}
+            lastRev = nil
+            dirtyCause = nil
+            syncDirty = false
             ExecuteJS("stopTick();")
             persistState()
             local msg = "Watched wall deleted — panels kept, re-pick a wall to re-watch"
@@ -466,6 +777,7 @@ function onDividersWallEvent(guid, kwargs, kind)
     if guid ~= watchedWall then
         return -- a panel's own edit/change; the row follows the wall only
     end
+    dirtyCause = "drag" -- fresh gesture: writes allowed (no redo can be pending)
     handleWallSync(guid, kind)
 end
 
@@ -477,7 +789,7 @@ end
 -- A reverted sync (panels moved back, wall unchanged) is GUIDED, never
 -- rewritten: rewriting it would trap the user (wall-undo unreachable behind
 -- an auto-redoing sync), so we only explain the next Ctrl+Z.
-local function panelsDiverged(wall)
+panelsDiverged = function(wall)
     local dx = wall.endC.x - wall.begC.x
     local dy = wall.endC.y - wall.begC.y
     local spacing = math.sqrt(dx * dx + dy * dy) / ROW_N
@@ -498,23 +810,51 @@ end
 function onTick()
     if not watchedWall or #dividers == 0 then
         syncDirty = false
+        dirtyCause = nil
         return
     end
-    if not syncDirty then
-        local wall = acapi.getWall(watchedWall)
-        if not wall then
+    local wall = acapi.getWall(watchedWall)
+    if not wall then
+        return
+    end
+    -- Undo/redo aftermath: adopt read-only, never write (any transaction
+    -- wipes a pending redo). Guidance on divergence, then done.
+    if syncDirty and (dirtyCause == "undo" or dirtyCause == "redo") then
+        local cause = dirtyCause
+        syncDirty = false
+        dirtyCause = nil
+        -- Refresh the key on adopt: otherwise it stays mismatched forever and
+        -- a later tick falls through to a write-sync (the #16 mechanism).
+        if readonlyAdopt("tick-" .. cause) then
+            lastSync[watchedWall] = syncKey(wall)
+        end
+        guideIfDiverged(wall)
+        if #dividers == 0 then
+            ExecuteJS("stopTick();") -- adopted absence; place restarts the tick
+        end
+        return
+    end
+    -- Silent data time-travel (user-data undos/redos notify nothing): entry
+    -- rev vs session rev is the only signal. Adopt read-only + silence the
+    -- write path by refreshing lastSync (state is consistent by construction).
+    if dirtyCause ~= "drag" then
+        local entry = readEntry(watchedWall)
+        local erev = (type(entry) == "table" and tonumber(entry.rev)) or nil
+        if erev ~= lastRev then
+            if readonlyAdopt("tick-rev") then
+                lastSync[watchedWall] = syncKey(wall)
+            end
+            if #dividers == 0 then
+                ExecuteJS("stopTick();")
+            end
             return
         end
+    end
+    if not syncDirty then
         if lastSync[watchedWall] == syncKey(wall) then
             return -- in sync, stay silent (no log spam)
         end
-        if panelsDiverged(wall) then
-            if os.time() - lastGuideTime >= 10 then
-                lastGuideTime = os.time()
-                local msg = "Divider sync was undone — Ctrl+Z again undoes the wall move"
-                SetWebResult(msg)
-                logEvent(msg)
-            end
+        if guideIfDiverged(wall) then
             return
         end
     end
@@ -525,6 +865,8 @@ function onTick()
 end
 
 RegisterWebEvent("onPlaceDividers", function(args)
+    inhibitUntil = 0 -- explicit user action ends any post-undo inhibit
+    inhibitGeom = nil
     applyFormArgs(args)
     local partName = args and args.partName or ""
     local guid = PickWall()
@@ -533,10 +875,10 @@ RegisterWebEvent("onPlaceDividers", function(args)
         return
     end
     watchedWall = guid
-    -- Adopt an existing user-data row when it matches (same part, or no part
+    -- Adopt an existing ledger entry when it matches (same part, or no part
     -- typed): no duplicate placement. A different typed part forces replace.
     do
-        local row = readRow(guid)
+        local row = readEntry(guid)
         if row then
             local wantInd = nil
             if partName ~= "" then
@@ -552,13 +894,24 @@ RegisterWebEvent("onPlaceDividers", function(args)
                 SetWebResult("adopt failed: " .. tostring(aerr))
                 return
             end
-            if wantInd == nil or wantInd == dividers.libInd then
+            markStale()
+            if #dividers > 0 and liveCount() == 0 then
+                -- Corpse entry: never adopt (a Place yielding nothing is worse
+                -- than burning the redo bridge for these guids — a later Redo
+                -- resurrects them as unlinked duplicates, owned by the
+                -- duplicate-prune item). Fall through to fresh placement.
+                clearEntry(guid)
+                logEvent("previous row discarded (all unreachable), placing fresh")
+                dividers = {}
+            elseif wantInd == nil or wantInd == dividers.libInd then
                 local wok2, werr2 = acapi.watch(guid, WATCHFUNC, { count = ROW_N })
                 if wok2 then
                     for _, d in ipairs(dividers) do
                         acapi.watch(d.guid, WATCHFUNC, { panel = true })
                     end
                     ExecuteJS("startTick();")
+                    acapi.regWrite(REG_SEC, "wall", guid) -- wipe hint for next run
+                    acapi.regWrite(REG_SEC, "watched", "true")
                     local w2 = acapi.getWall(guid)
                     if w2 then lastSync[guid] = syncKey(w2) end
                     SetWebResult(string.format("Adopted %d dividers from wall data, watching", #dividers))
@@ -603,6 +956,8 @@ RegisterWebEvent("onPlaceDividers", function(args)
         end
         lastFailMsg = nil -- fresh row, old failure texts must show again if they recur
         ExecuteJS("startTick();")
+        acapi.regWrite(REG_SEC, "wall", guid) -- wipe hint for next run
+        acapi.regWrite(REG_SEC, "watched", "true")
         local w = acapi.getWall(guid)
         if w then lastSync[guid] = syncKey(w) end
         local msg = string.format("Placed %d × '%s', watching wall", #dividers, tostring(info))
@@ -652,17 +1007,6 @@ RegisterWebEvent("onTick", function()
     onTick()
 end)
 
-RegisterWebEvent("onToggleLog", function(args)
-    local on = args and args.enabled
-    acapi.observerLog(on)
-    SetWebResult("event logging " .. (on and "ON (see Report window)" or "OFF"))
-end)
-
-RegisterWebEvent("onToggleAuto", function(args)
-    -- Persisted silently; restored on load. No result spam on mere toggle.
-    acapi.regWrite(REG_SEC, "autoRef", (args and args.enabled) and "true" or "false")
-end)
-
 RegisterWebEvent("onCountChanged", function(args)
     local n = args and clampCount(args.count) or nil
     if n == nil then
@@ -710,6 +1054,33 @@ RegisterWebEvent("onRefreshDividers", function(args)
         SetWebResult("Pick a wall first!")
         return
     end
+    inhibitUntil = 0 -- explicit Refresh (doubles as Repair): inhibit ends here
+    inhibitGeom = nil
+    -- Repair (explicit Refresh only, never the tick): an orphaned entry
+    -- rebuilds from the ledger instead of failing. The tick must not do
+    -- this — auto-repair would resurrect deliberate undos and duplicate
+    -- on redo-tennis.
+    markStale()
+    local entry = readEntry(watchedWall)
+    if entry ~= nil and #entryGuids(entry) > 0 and liveCount() == 0 then
+        if #dividers == 0 then
+            local aok, aerr = adoptRow(watchedWall, entry, true)
+            if not aok then
+                SetWebResult("Repair failed: " .. tostring(aerr))
+                return
+            end
+            markStale()
+        end
+        local ok, info = repairRow(watchedWall, entry)
+        if ok then
+            local msg = string.format("Repaired %d points from wall data", #dividers)
+            SetWebResult(msg)
+            logEvent(msg)
+        else
+            SetWebResult("Repair failed: " .. tostring(info))
+        end
+        return
+    end
     local ok, info = refreshDividers(watchedWall)
     if ok then
         local msg = string.format("Refreshed %d points manually", #dividers)
@@ -721,9 +1092,29 @@ RegisterWebEvent("onRefreshDividers", function(args)
 end)
 
 RegisterWebEvent("onDeleteDividers", function()
+    inhibitUntil = 0 -- explicit user action ends any post-undo inhibit
+    inhibitGeom = nil
     markStale()
     if liveCount() == 0 then
-        SetWebResult("No dividers to delete")
+        -- No live panels: drop the orphaned entry (if any) instead of
+        -- refusing — otherwise a zero-live row strands Place (adopts a
+        -- corpse) while Delete refuses (nothing live to delete).
+        local entry = watchedWall and readEntry(watchedWall) or nil
+        if entry ~= nil or #dividers > 0 then
+            unwatchRow()
+            dividers = {}
+            lastRev = nil
+            dirtyCause = nil
+            if watchedWall then
+                clearEntry(watchedWall)
+            end
+            acapi.regWrite(REG_SEC, "watched", "false")
+            ExecuteJS("stopTick();")
+            SetWebResult("No live dividers — orphaned row cleared, place again to start fresh")
+            logEvent("orphaned row cleared")
+        else
+            SetWebResult("No dividers to delete")
+        end
         return
     end
     unwatchRow()
@@ -740,9 +1131,12 @@ RegisterWebEvent("onDeleteDividers", function()
         return
     end
     dividers = {}
+    lastRev = nil
+    dirtyCause = nil
     if watchedWall then
-        acapi.deleteUserData(watchedWall)
+        clearEntry(watchedWall)
     end
+    acapi.regWrite(REG_SEC, "watched", "false")
     ExecuteJS("stopTick();")
     SetWebResult(string.format("Deleted %d dividers", n))
 end)
@@ -750,8 +1144,17 @@ end)
 RegisterWebEvent("onUnwatchDividers", function()
     if watchedWall then
         unwatchRow()
+        inhibitUntil = 0 -- explicit user action ends any post-undo inhibit
+        inhibitGeom = nil
+        clearEntry(watchedWall) -- release: panels stay in the model as plain
+                                -- elements; the script forgets them for good
+        dividers = {}
+        lastRev = nil
+        dirtyCause = nil
+        syncDirty = false
         ExecuteJS("stopTick();")
-        SetWebResult("Unwatched (row kept on the wall — re-pick to re-adopt)")
+        acapi.regWrite(REG_SEC, "watched", "false")
+        SetWebResult("Unwatched — panels released (kept in model, no longer managed)")
         watchedWall = nil
         lastSync = {}
     else
@@ -774,8 +1177,6 @@ input{margin:4px 0;width:180px;}
 <div class='row'><label>Panel B (width):</label><input id='panelB' type='text' value='' placeholder='auto = wall width' oninput='fieldEdited()'></div>
 <div class='row'><label>ZZYZX:</label><input id='panelZZ' type='number' value='0.25' step='0.05' oninput='fieldEdited()'></div>
 <div class='row'><label>Center on point:</label><input id='centerDiv' type='checkbox' onchange='refreshNow()' title='panel midpoint (not origin) sits on the division; applies immediately'></div>
-<div class='row'><label>Auto-refresh:</label><input id='autoRef' type='checkbox' onchange='saveAutoRef()' title='apply B/ZZYZX edits immediately, no Refresh button needed'></div>
-<div class='row'><label>Log events:</label><input id='logEvents' type='checkbox' onchange='toggleLog()' title='raw observer notifications to the Report window'></div>
 <div>
 <button onclick='placeDividers()'>Pick Wall + Place Points</button>
 <button onclick='inspectPart()'>Inspect Part</button>
@@ -788,7 +1189,7 @@ input{margin:4px 0;width:180px;}
 </div>
 <div id='result'>Enter a marker part name, then pick a wall.</div>
 <div id='events'>event log…</div>
-<div id='ver' style='margin-top:8px;font-size:10px;color:#777;'></div>
+<div id='ver' style='margin-top:8px;font-size:10px;color:#777;'>try_dividers.lua ]] .. SCRIPT_VER .. [[</div>
 <script>
 var eventLines = [];
 function eventLog(line){
@@ -811,7 +1212,6 @@ function placeDividers(){
 }
 var fieldTimer = null;
 function fieldEdited(){
-    if(!document.getElementById('autoRef').checked) return;
     if(fieldTimer) clearTimeout(fieldTimer);
     fieldTimer = setTimeout(function(){ fieldTimer = null; refreshNow(); }, 700);
 }
@@ -821,12 +1221,6 @@ function refreshNow(){
 function inspectPart(){
     var f = function(id){ return document.getElementById(id); };
     archilua.CallLua('onInspectPart', JSON.stringify({ partName: f('partName').value }));
-}
-function toggleLog(){
-    archilua.CallLua('onToggleLog', JSON.stringify({ enabled: document.getElementById('logEvents').checked }));
-}
-function saveAutoRef(){
-    archilua.CallLua('onToggleAuto', JSON.stringify({ enabled: document.getElementById('autoRef').checked }));
 }
 function countChanged(){
     archilua.CallLua('onCountChanged', JSON.stringify({ count: parseInt(document.getElementById('divCount').value, 10) }));
@@ -855,31 +1249,35 @@ do
     ExecuteJS(string.format("document.getElementById('panelZZ').value='%s';", tostring(opts.zzyzx)))
     ExecuteJS(string.format("document.getElementById('centerDiv').checked=%s;",
         opts.center and "true" or "false"))
-    ExecuteJS(string.format("document.getElementById('autoRef').checked=%s;",
-        acapi.regRead(REG_SEC, "autoRef", "false") == "true" and "true" or "false"))
     ExecuteJS(string.format("document.getElementById('divCount').value='%d';", opts.count))
-    ExecuteJS(string.format("document.getElementById('ver').textContent='try_dividers.lua %s';", SCRIPT_VER))
-    -- Restore previous session: the row lives ON THE WALL (user data), so the
-    -- last wall is only a hint — adoption validates against the model.
+    acapi.observerLog(true) -- event tracing always on (see Report window)
+    -- (footer version is baked into the HTML above: load-time ExecuteJS races the DOM)
+    -- Ownership wipe: the previous run's children are deleted and the own
+    -- entry cleared — every Run starts empty. Foreign entries survive.
     -- Registry identity keys (dividers/angles/dead/libInd/rowCount) are retired.
     local w = acapi.regRead(REG_SEC, "wall", "")
     if type(w) == "string" and w ~= "" and acapi.getWall(w) then
-        local row = readRow(w)
-        if row then
-            local aok, aerr = adoptRow(w, row)
-            if not aok then
-                logEvent("restore failed: " .. tostring(aerr))
-            elseif acapi.regRead(REG_SEC, "watched", "false") == "true" and #dividers > 0 then
-                acapi.watch(w, WATCHFUNC, { count = ROW_N })
-                for _, d in ipairs(dividers) do
-                    if not d.dead then
-                        acapi.watch(d.guid, WATCHFUNC, { panel = true })
+        local entry = readEntry(w)
+        if entry ~= nil then
+            local owned = entryGuids(entry)
+            local wiped = 0
+            if #owned > 0 then
+                acapi.beginUndo("Clear previous run")
+                for _, g in ipairs(owned) do
+                    if acapi.get(g) and acapi.delete(g) then
+                        wiped = wiped + 1
                     end
                 end
-                ExecuteJS("startTick();")
-                logEvent("restored " .. #dividers .. " dividers from wall data, watching")
-            elseif #dividers > 0 then
-                logEvent("restored " .. #dividers .. " dividers from wall data (not watching)")
+                local cok, cerr = acapi.endUndo()
+                if not cok then
+                    logEvent("wipe failed: " .. tostring(cerr))
+                end
+            end
+            clearEntry(w)
+            if wiped > 0 then
+                logEvent(string.format("wiped previous run: %d objects deleted", wiped))
+            else
+                logEvent("previous entry cleared (nothing live to delete)")
             end
         end
     end

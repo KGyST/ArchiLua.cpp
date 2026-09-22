@@ -3,7 +3,7 @@
 -- On wall Change/Edit their XY positions are recomputed from the new begC/endC.
 
 -- Bump on every script change; shown in the dialog footer to verify what's running.
-local SCRIPT_VER = "260922g"
+local SCRIPT_VER = "260922h"
 
 local watchedWall = nil
 local dividers = {} -- divider entries {guid, angle}, in wall order (dense 1..N)
@@ -11,8 +11,9 @@ local rowMeta = {} -- row identity: {libInd, partName} (kept OUT of the array
                    -- so ipairs traversals can never trip over hash keys)
 local DIV_COUNT_DEFAULT = 10
 local REG_SEC = "try_dividers"
--- Live row's count (set at place/adopt). The UI setting (opts.count) only
--- takes effect on next Place, so a live row's slot mapping never shifts.
+-- Live row's count (set at place/adopt). The UI Divisions field re-divides
+-- the live row immediately (replace flow); without a live row it applies on
+-- next Place. Slot mapping never shifts except through replace.
 local ROW_N = DIV_COUNT_DEFAULT
 local WATCHFUNC = "try_dividers.lua\\onDividersWallEvent"
 local ROW_KEY = "try_dividers.lua" -- ledger namespace: this script owns only
@@ -890,6 +891,63 @@ function onTick()
     end
 end
 
+-- Replace the live row with a fresh division at the current opts.count.
+-- Used by fresh Place and by Divisions-field changes (the field drives the
+-- row, not just the UI): clears previous panels, places, watches, persists.
+-- Reports via SetWebResult/logEvent; returns true on success.
+local function replaceRow(wallGuid, partName)
+    ROW_N = opts.count
+    markStale()
+    if liveCount() > 0 then
+        -- Re-place replaces: clear the previous row first, else it orphans.
+        -- Abort on flush failure so we never stack a new row on a live old one.
+        -- Missing (in-flight) entries are skipped, never sent to delete.
+        unwatchRow()
+        acapi.beginUndo("Clear old dividers")
+        for _, d in ipairs(dividers) do
+            if not d.missing and not d.dead then
+                acapi.delete(d.guid)
+            end
+        end
+        local cok, cerr = acapi.endUndo()
+        if not cok then
+            SetWebResult("clear failed, place aborted: " .. tostring(cerr))
+            return false
+        end
+        logEvent("cleared previous row")
+        dividers = {}
+    end
+    local ok, info = placeDividers(wallGuid, partName)
+    if not ok then
+        SetWebResult("place failed: " .. tostring(info))
+        return false
+    end
+    local wok, werr = acapi.watch(wallGuid, WATCHFUNC, { count = ROW_N })
+    if wok then
+        watchPanels()
+        lastFailMsg = nil -- fresh row, old failure texts must show again if they recur
+        syncDirty = false -- fresh place supersedes any deferred tick work
+        dirtyCause = nil
+        acapi.regWrite(REG_SEC, "partName", partName) -- persist only what placed
+        ExecuteJS("startTick();")
+        acapi.regWrite(REG_SEC, "wall", wallGuid) -- wipe hint for next run
+        acapi.regWrite(REG_SEC, "watched", "true")
+        local w = acapi.getWall(wallGuid)
+        if w then lastSync[wallGuid] = syncKey(w) end
+        local msg = string.format("Placed %d × '%s', watching wall", #dividers, tostring(info))
+        if tostring(info):find(", 0 overrides") then
+            msg = msg .. " — WARNING: no param override matched! Hit Inspect Part."
+        end
+        ExecuteJS("document.getElementById('result').textContent='" .. msg:gsub("'", "") .. "';")
+        SetWebResult(msg)
+        logEvent("placed " .. #dividers .. " points")
+    else
+        SetWebResult("watch failed: " .. tostring(werr))
+        return false
+    end
+    return true
+end
+
 RegisterWebEvent("onPlaceDividers", function(args)
     disarmInhibit()
     applyFormArgs(args)
@@ -948,54 +1006,7 @@ RegisterWebEvent("onPlaceDividers", function(args)
             end
         end
     end
-    ROW_N = opts.count -- the setting takes effect on Place; refresh keeps ROW_N
-    markStale()
-    if liveCount() > 0 then
-        -- Re-place replaces: clear the previous row first, else it orphans.
-        -- Abort on flush failure so we never stack a new row on a live old one.
-        -- Missing (in-flight) entries are skipped, never sent to delete.
-        unwatchRow()
-        acapi.beginUndo("Clear old dividers")
-        for _, d in ipairs(dividers) do
-            if not d.missing and not d.dead then
-                acapi.delete(d.guid)
-            end
-        end
-        local cok, cerr = acapi.endUndo()
-        if not cok then
-            SetWebResult("clear failed, place aborted: " .. tostring(cerr))
-            return
-        end
-        logEvent("cleared previous row")
-        dividers = {}
-    end
-    local ok, info = placeDividers(guid, partName)
-    if not ok then
-        SetWebResult("place failed: " .. tostring(info))
-        return
-    end
-    local wok, werr = acapi.watch(guid, WATCHFUNC, { count = ROW_N })
-    if wok then
-        watchPanels()
-        lastFailMsg = nil -- fresh row, old failure texts must show again if they recur
-        syncDirty = false -- fresh place supersedes any deferred tick work
-        dirtyCause = nil
-        acapi.regWrite(REG_SEC, "partName", partName) -- persist only what placed
-        ExecuteJS("startTick();")
-        acapi.regWrite(REG_SEC, "wall", guid) -- wipe hint for next run
-        acapi.regWrite(REG_SEC, "watched", "true")
-        local w = acapi.getWall(guid)
-        if w then lastSync[guid] = syncKey(w) end
-        local msg = string.format("Placed %d × '%s', watching wall", #dividers, tostring(info))
-        if tostring(info):find(", 0 overrides") then
-            msg = msg .. " — WARNING: no param override matched! Hit Inspect Part."
-        end
-        ExecuteJS("document.getElementById('result').textContent='" .. msg:gsub("'", "") .. "';")
-        SetWebResult(msg)
-        logEvent("placed " .. #dividers .. " points")
-    else
-        SetWebResult("watch failed: " .. tostring(werr))
-    end
+    replaceRow(guid, partName)
 end)
 
 RegisterWebEvent("onInspectPart", function(args)
@@ -1041,11 +1052,22 @@ RegisterWebEvent("onCountChanged", function(args)
     end
     opts.count = n
     saveOpts()
-    if #dividers > 0 and ROW_N ~= n then
-        SetWebResult(string.format("Division count set to %d — re-place to apply (current row keeps %d)", n, ROW_N))
-    else
-        SetWebResult(string.format("Division count set to %d", n))
+    if not watchedWall or #dividers == 0 then
+        SetWebResult(string.format("Division count set to %d (applies on next Place)", n))
+        return
     end
+    if n == ROW_N then
+        SetWebResult(string.format("Already %d divisions", n))
+        return
+    end
+    -- The field drives the live row: re-divide in place (same wall, same part).
+    local partName = rowMeta.partName or ""
+    if partName == "" then
+        SetWebResult("Row has no part recorded — re-place manually")
+        return
+    end
+    disarmInhibit()
+    replaceRow(watchedWall, partName) -- reports itself
 end)
 
 RegisterWebEvent("onEnlistDividers", function()
@@ -1200,7 +1222,7 @@ input{margin:4px 0;width:180px;}
 .row{margin:4px 0;}
 </style></head><body>
 <div class='row'><label>Marker part name:</label><input id='partName' type='text' value='' placeholder='exact library document name'></div>
-<div class='row'><label>Divisions:</label><input id='divCount' type='number' value='10' min='1' max='100' step='1' onchange='countChanged()' title='takes effect on next Place'></div>
+<div class='row'><label>Divisions:</label><input id='divCount' type='number' value='10' min='1' max='100' step='1' onchange='countChanged()' title='re-divides the live row immediately'></div>
 <div class='row'><label>Panel B (width):</label><input id='panelB' type='text' value='' placeholder='auto = wall width' oninput='fieldEdited()'></div>
 <div class='row'><label>ZZYZX:</label><input id='panelZZ' type='number' value='0.25' step='0.05' oninput='fieldEdited()'></div>
 <div class='row'><label>Center on point:</label><input id='centerDiv' type='checkbox' onchange='refreshNow()' title='panel midpoint (not origin) sits on the division; applies immediately'></div>

@@ -1,15 +1,17 @@
--- try_dividers.lua — 10 standalone divider points on a wall, kept in sync via the observer.
+-- try_dividers.lua — N standalone divider points on a wall, kept in sync via the observer.
 -- Dividers are independent library objects on the wall centerline (visible 2D plan points).
 -- On wall Change/Edit their XY positions are recomputed from the new begC/endC.
 
 -- Bump on every script change; shown in the dialog footer to verify what's running.
-local SCRIPT_VER = "260922e"
+local SCRIPT_VER = "260922g"
 
 local watchedWall = nil
-local dividers = {} -- divider entries {guid, angle}, in wall order
+local dividers = {} -- divider entries {guid, angle}, in wall order (dense 1..N)
+local rowMeta = {} -- row identity: {libInd, partName} (kept OUT of the array
+                   -- so ipairs traversals can never trip over hash keys)
 local DIV_COUNT_DEFAULT = 10
 local REG_SEC = "try_dividers"
--- Live row's count (set at place/restore). The UI setting (opts.count) only
+-- Live row's count (set at place/adopt). The UI setting (opts.count) only
 -- takes effect on next Place, so a live row's slot mapping never shifts.
 local ROW_N = DIV_COUNT_DEFAULT
 local WATCHFUNC = "try_dividers.lua\\onDividersWallEvent"
@@ -75,14 +77,14 @@ local function readLedger(wallGuid)
 end
 
 -- Own entry fetch. Normalizes legacy flat rows to entry shape.
--- Returns entry or nil; second return true when the source was legacy.
+-- Returns entry or nil.
 local function readEntry(wallGuid)
     local ud = acapi.getUserData(wallGuid)
     if type(ud) ~= "table" then
         return nil
     end
     if type(ud[ROW_KEY]) == "table" then
-        return ud[ROW_KEY], false
+        return ud[ROW_KEY]
     end
     if type(ud.dividers) == "table" then
         return {
@@ -90,7 +92,7 @@ local function readEntry(wallGuid)
             partName = ud.partName,
             count = ud.count,
             opts = ud.opts,
-        }, true
+        }
     end
     return nil
 end
@@ -110,7 +112,7 @@ end
 -- (which notify nothing) by rev mismatch and adopts read-only. Bumped on
 -- every effective persist, skipped on no-op persists (change-detected).
 local function buildEntry(wall, rev)
-    local entry = { children = {}, partName = dividers.partName, count = ROW_N,
+    local entry = { children = {}, partName = rowMeta.partName, count = ROW_N,
                     rev = rev, opts = { zzyzx = opts.zzyzx, center = opts.center } }
     if opts.b ~= nil then entry.opts.b = opts.b end
     for i, d in ipairs(dividers) do
@@ -229,6 +231,9 @@ local function pushOptsToForm()
     ExecuteJS(string.format("document.getElementById('centerDiv').checked=%s;",
         opts.center and "true" or "false"))
     ExecuteJS(string.format("document.getElementById('divCount').value='%d';", opts.count))
+    -- Adopted part name follows the row (the field may hold a stale typed value).
+    ExecuteJS(string.format("document.getElementById('partName').value='%s';",
+        tostring(rowMeta.partName or ""):gsub("'", "")))
 end
 
 -- Resolve a fresh libInd (indices are session-volatile); fails loudly when
@@ -240,7 +245,6 @@ local function resolveRowPart(row)
         if not libInd then
             return nil, err
         end
-        dividers.partName = row.partName
         return libInd
     end
     local legacy = tonumber(row.libInd)
@@ -254,8 +258,11 @@ end
 -- First contact only: with keepOpts (refresh path) the divider identity
 -- (guids, part, count) is adopted but live session opts (just typed in the
 -- form) win — otherwise every refresh would revert the fresh edits to the
--- stored copy. Full adopt (place/restore) takes entry.opts as truth and never
--- writes them back to the registry: registry holds pre-wall defaults only.
+-- stored copy. Full adopt (place/repair/readonly paths) takes entry.opts as
+-- truth and never writes them back to the registry: registry holds pre-wall
+-- defaults only. Slot-density invariant: stored children are always valid
+-- tables (buildEntry guarantees it), so the indexed fill below never leaves
+-- holes that would truncate the ipairs traversals elsewhere.
 local function adoptRow(wallGuid, row, keepOpts)
     dividers = {}
     for i, e in ipairs(row.children or row.dividers or {}) do
@@ -268,8 +275,8 @@ local function adoptRow(wallGuid, row, keepOpts)
     if not libInd then
         return false, err
     end
-    dividers.libInd = libInd
-    dividers.partName = row.partName -- stable identity; libInd re-resolves per refresh
+    rowMeta.libInd = libInd
+    rowMeta.partName = row.partName -- stable identity; libInd re-resolves per refresh
     ROW_N = tonumber(row.count) or #dividers
     opts.count = ROW_N -- session follows the live row; registry keeps the
                        -- pre-wall default for walls without a row
@@ -305,7 +312,6 @@ local function markStale()
     if missing > 0 then
         logEvent("suspect stale: " .. missing .. " unreachable (kept for redo)")
     end
-    return missing
 end
 
 local function liveCount()
@@ -378,6 +384,21 @@ local function divPoint(wall, spacing, ang, i)
     return p
 end
 
+-- Geometry helpers. Defined here (before placeDividers) because Lua binds
+-- locals at definition time: users below must see them lexically.
+local function geomHash(wall)
+    return string.format("%.6f,%.6f,%.6f,%.6f",
+        wall.begC.x, wall.begC.y, wall.endC.x, wall.endC.y)
+end
+
+local function wallLength(wall)
+    return math.sqrt((wall.endC.x - wall.begC.x) ^ 2 + (wall.endC.y - wall.begC.y) ^ 2)
+end
+
+local function rowParams(wall, spacing)
+    return { A = spacing, B = effB(wall), ZZYZX = opts.zzyzx }
+end
+
 resolvePart = function(name)
     if not name or name == "" then
         return nil, "enter a library part name first"
@@ -399,10 +420,9 @@ local function placeDividers(wallGuid, partName)
     if not wall then
         return false, "getWall failed"
     end
-    acapi.regWrite(REG_SEC, "partName", partName)
-    local wallLen = math.sqrt((wall.endC.x - wall.begC.x) ^ 2 + (wall.endC.y - wall.begC.y) ^ 2)
+    local wallLen = wallLength(wall)
     local spacing = wallLen / ROW_N -- panel X size tiles the wall exactly
-    local params = { A = spacing, B = effB(wall), ZZYZX = opts.zzyzx }
+    local params = rowParams(wall, spacing)
     local ang = wallAngle(wall)
     local positions = {}
     for i = 1, ROW_N do
@@ -420,8 +440,8 @@ local function placeDividers(wallGuid, partName)
     end
     -- stash for rebuilds on rotation change (libInd is session-ephemeral;
     -- partName below is the stable identity re-resolved on every refresh)
-    dividers.libInd = libInd
-    dividers.partName = partName
+    rowMeta.libInd = libInd
+    rowMeta.partName = partName
     persistState(wall)
     return true, foundName .. " (" .. tostring(info) .. ")"
 end
@@ -441,8 +461,6 @@ local function refreshDividers(wallGuid)
         end
     elseif #dividers == 0 then
         return false, "no dividers tracked (place first)"
-    else
-        persistState(wall) -- one-time migration: legacy session row adopts into user data
     end
     markStale()
     if liveCount() == 0 then
@@ -451,11 +469,9 @@ local function refreshDividers(wallGuid)
         end
         return false, "all dividers unreachable (redo may restore them; Refresh repairs, Delete Points discards)"
     end
-    local dx = wall.endC.x - wall.begC.x
-    local dy = wall.endC.y - wall.begC.y
-    local spacing = math.sqrt(dx * dx + dy * dy) / ROW_N
+    local spacing = wallLength(wall) / ROW_N
     local newAngle = wallAngle(wall)
-    local params = { A = spacing, B = effB(wall), ZZYZX = opts.zzyzx }
+    local params = rowParams(wall, spacing)
     -- Partition: moves apply in place, direction changes need a rebuild
     -- (angle is not Change-editable). One syncRow call does moves + deletes
     -- + creates in a SINGLE undoable command (1 undo step total).
@@ -474,7 +490,7 @@ local function refreshDividers(wallGuid)
         end
     end
     local res, err = acapi.syncRow({
-        moves = moves, del = dels, libInd = dividers.libInd,
+        moves = moves, del = dels, libInd = rowMeta.libInd,
         creates = creates, params = params
     })
     if not res then
@@ -506,9 +522,9 @@ local function repairRow(wallGuid, entry)
     if not wall then
         return false, "wall not found"
     end
-    local wallLen = math.sqrt((wall.endC.x - wall.begC.x) ^ 2 + (wall.endC.y - wall.begC.y) ^ 2)
+    local wallLen = wallLength(wall)
     local spacing = wallLen / ROW_N
-    local params = { A = spacing, B = effB(wall), ZZYZX = opts.zzyzx }
+    local params = rowParams(wall, spacing)
     local ang = wallAngle(wall)
     markStale()
     local remnant = {}
@@ -556,8 +572,8 @@ local function repairRow(wallGuid, entry)
             dividers[i] = { guid = child.guid, angle = tonumber(child.angle) or 0, dead = true }
         end
     end
-    dividers.libInd = libInd
-    dividers.partName = entry.partName
+    rowMeta.libInd = libInd
+    rowMeta.partName = entry.partName
     persistState(wall)
     lastSync[wallGuid] = syncKey(wall)
     return true, info
@@ -598,13 +614,26 @@ local inhibitGeom = nil
 lastSync = {}
 
 syncKey = function(wall)
-    return string.format("%.6f,%.6f,%.6f,%.6f,%s,%s,%s,%s",
-        wall.begC.x, wall.begC.y, wall.endC.x, wall.endC.y,
+    return geomHash(wall) .. string.format(",%s,%s,%s,%s",
         tostring(ROW_N), tostring(opts.b), tostring(opts.zzyzx), tostring(opts.center))
 end
 
 local lastFailMsg = nil
 local lastSuppressMsg = nil -- dedupe for the inhibit-suppressed line above
+
+-- Tiny shared helpers (every user below binds locally).
+local function watchPanels()
+    for _, d in ipairs(dividers) do
+        if type(d) == "table" and d.guid then
+            acapi.watch(d.guid, WATCHFUNC, { panel = true })
+        end
+    end
+end
+
+local function disarmInhibit()
+    inhibitUntil = 0 -- explicit user action ends any post-undo inhibit
+    inhibitGeom = nil
+end
 
 local function reportSync(kind, ok, info)
     if ok then
@@ -701,8 +730,7 @@ local function handleWallSync(guid, kind)
     -- drag (edit/change refresh the wall, undo/redo never do) → disarm and
     -- proceed, its redo wipe being standard and correct.
     if os.time() < inhibitUntil then
-        local g = wall and wall.begC and wall.endC and string.format("%.6f,%.6f,%.6f,%.6f",
-            wall.begC.x, wall.begC.y, wall.endC.x, wall.endC.y) or nil
+        local g = wall and wall.begC and wall.endC and geomHash(wall) or nil
         if inhibitGeom ~= nil and g ~= nil and g ~= inhibitGeom then
             inhibitUntil = 0
             inhibitGeom = nil
@@ -755,7 +783,6 @@ function onDividersWallEvent(guid, kwargs, kind)
             dirtyCause = nil
             syncDirty = false
             ExecuteJS("stopTick();")
-            persistState()
             local msg = "Watched wall deleted — panels kept, re-pick a wall to re-watch"
             SetWebResult(msg)
             logEvent(msg)
@@ -782,10 +809,9 @@ function onDividersWallEvent(guid, kwargs, kind)
 end
 
 -- Called by the JS heartbeat (800 ms while watching). Same safe context as a
--- button click, so commands are allowed here. Besides retrying refused syncs,
--- every beat compares the wall hash: undo/redo (which we must not write
--- during, and which split wall and panels into separate undo units) shows up
--- as drift and gets re-synced here — eventual consistency without polling writes.
+-- button click, so commands are allowed here. Retries refused drag syncs and
+-- adopts natively versioned state after undo/redo (read-only — writes would
+-- wipe a pending redo); silent user-data walks surface via rev mismatch.
 -- A reverted sync (panels moved back, wall unchanged) is GUIDED, never
 -- rewritten: rewriting it would trap the user (wall-undo unreachable behind
 -- an auto-redoing sync), so we only explain the next Ctrl+Z.
@@ -865,8 +891,7 @@ function onTick()
 end
 
 RegisterWebEvent("onPlaceDividers", function(args)
-    inhibitUntil = 0 -- explicit user action ends any post-undo inhibit
-    inhibitGeom = nil
+    disarmInhibit()
     applyFormArgs(args)
     local partName = args and args.partName or ""
     local guid = PickWall()
@@ -903,17 +928,17 @@ RegisterWebEvent("onPlaceDividers", function(args)
                 clearEntry(guid)
                 logEvent("previous row discarded (all unreachable), placing fresh")
                 dividers = {}
-            elseif wantInd == nil or wantInd == dividers.libInd then
+            elseif wantInd == nil or wantInd == rowMeta.libInd then
                 local wok2, werr2 = acapi.watch(guid, WATCHFUNC, { count = ROW_N })
                 if wok2 then
-                    for _, d in ipairs(dividers) do
-                        acapi.watch(d.guid, WATCHFUNC, { panel = true })
-                    end
+                    watchPanels()
                     ExecuteJS("startTick();")
                     acapi.regWrite(REG_SEC, "wall", guid) -- wipe hint for next run
                     acapi.regWrite(REG_SEC, "watched", "true")
                     local w2 = acapi.getWall(guid)
                     if w2 then lastSync[guid] = syncKey(w2) end
+                    syncDirty = false -- adopted row is current; no deferred work pending
+                    dirtyCause = nil
                     SetWebResult(string.format("Adopted %d dividers from wall data, watching", #dividers))
                     logEvent("adopted row from user data")
                 else
@@ -951,10 +976,11 @@ RegisterWebEvent("onPlaceDividers", function(args)
     end
     local wok, werr = acapi.watch(guid, WATCHFUNC, { count = ROW_N })
     if wok then
-        for _, d in ipairs(dividers) do
-            acapi.watch(d.guid, WATCHFUNC, { panel = true })
-        end
+        watchPanels()
         lastFailMsg = nil -- fresh row, old failure texts must show again if they recur
+        syncDirty = false -- fresh place supersedes any deferred tick work
+        dirtyCause = nil
+        acapi.regWrite(REG_SEC, "partName", partName) -- persist only what placed
         ExecuteJS("startTick();")
         acapi.regWrite(REG_SEC, "wall", guid) -- wipe hint for next run
         acapi.regWrite(REG_SEC, "watched", "true")
@@ -1054,8 +1080,7 @@ RegisterWebEvent("onRefreshDividers", function(args)
         SetWebResult("Pick a wall first!")
         return
     end
-    inhibitUntil = 0 -- explicit Refresh (doubles as Repair): inhibit ends here
-    inhibitGeom = nil
+    disarmInhibit() -- explicit Refresh (doubles as Repair)
     -- Repair (explicit Refresh only, never the tick): an orphaned entry
     -- rebuilds from the ledger instead of failing. The tick must not do
     -- this — auto-repair would resurrect deliberate undos and duplicate
@@ -1073,6 +1098,8 @@ RegisterWebEvent("onRefreshDividers", function(args)
         end
         local ok, info = repairRow(watchedWall, entry)
         if ok then
+            syncDirty = false -- manual repair resolved everything pending
+            dirtyCause = nil
             local msg = string.format("Repaired %d points from wall data", #dividers)
             SetWebResult(msg)
             logEvent(msg)
@@ -1083,6 +1110,8 @@ RegisterWebEvent("onRefreshDividers", function(args)
     end
     local ok, info = refreshDividers(watchedWall)
     if ok then
+        syncDirty = false -- manual refresh resolved everything pending
+        dirtyCause = nil
         local msg = string.format("Refreshed %d points manually", #dividers)
         SetWebResult(msg)
         logEvent(msg)
@@ -1092,8 +1121,7 @@ RegisterWebEvent("onRefreshDividers", function(args)
 end)
 
 RegisterWebEvent("onDeleteDividers", function()
-    inhibitUntil = 0 -- explicit user action ends any post-undo inhibit
-    inhibitGeom = nil
+    disarmInhibit()
     markStale()
     if liveCount() == 0 then
         -- No live panels: drop the orphaned entry (if any) instead of
@@ -1144,8 +1172,7 @@ end)
 RegisterWebEvent("onUnwatchDividers", function()
     if watchedWall then
         unwatchRow()
-        inhibitUntil = 0 -- explicit user action ends any post-undo inhibit
-        inhibitGeom = nil
+        disarmInhibit()
         clearEntry(watchedWall) -- release: panels stay in the model as plain
                                 -- elements; the script forgets them for good
         dividers = {}

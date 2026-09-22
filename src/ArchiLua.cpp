@@ -43,6 +43,11 @@ static void ExecLuaSilent(const std::string& relPath)
     if (!L)
         return;
 
+    // Re-attempt watch restore on every run: the init-time restore may have
+    // run with no project open (silently skipping). A menu/file run implies
+    // an open project; restore is non-destructive (never prunes persistently).
+    APIModule::RestoreWatches();
+
     GS::UniString uniPath;
     if (relPath.size() >= 2 && relPath[1] == ':') {
         uniPath = GS::UniString(relPath.c_str());

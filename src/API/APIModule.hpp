@@ -3003,7 +3003,11 @@ static void RestoreWatches()
     Json root = Json::Parse(text);
     if (root.type != Json::Obj)
         return;
-    bool pruned = false;
+    // NOTE: never PersistWatches() here. Restore may run with no project open
+    // (add-on init) or mid-restore failures — persisting a prune then would
+    // wipe live subscriptions. Stale entries simply stay out of the session
+    // map; explicit Unwatch() persists. Restore is re-attempted on every
+    // script run (project guaranteed open there).
     for (size_t i = 0; i < root.o.size(); ++i) {
         const std::string& guidStr = root.o[i].first;
         const Json& item = root.o[i].second;
@@ -3025,7 +3029,6 @@ static void RestoreWatches()
             continue;
         }
         if (funcUrl.empty()) {
-            pruned = true;
             continue;
         }
         API_Guid guid = APIGuidFromString(guidStr.c_str());
@@ -3033,11 +3036,9 @@ static void RestoreWatches()
         BNZeroMemory(&elem, sizeof(elem));
         elem.header.guid = guid;
         if (ACAPI_Element_Get(&elem) != NoError) {
-            pruned = true; // element gone (deleted since save) — drop the watch
-            continue;
+            continue; // element gone (or no project open) — skip, never prune persistently
         }
         if (ACAPI_Element_AttachObserver(guid, 0) != NoError) {
-            pruned = true;
             continue;
         }
         PushJsonVal(L, kwargs);
@@ -3046,8 +3047,6 @@ static void RestoreWatches()
         entry.kwargsRef = luaL_ref(L, LUA_REGISTRYINDEX);
         WatchMap()[guidStr] = entry;
     }
-    if (pruned)
-        PersistWatches();
 }
 
 static void DispatchWatch(const std::string& guidStr, const char* kind)

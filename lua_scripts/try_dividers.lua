@@ -3,7 +3,7 @@
 -- On wall Change/Edit their XY positions are recomputed from the new begC/endC.
 
 -- Bump on every script change; shown in the dialog footer to verify what's running.
-local SCRIPT_VER = "260922m"
+local SCRIPT_VER = "260922n"
 
 local watchedWall = nil
 local dividers = {} -- divider entries {guid, angle}, in wall order (dense 1..N)
@@ -753,15 +753,14 @@ local function handleWallSync(guid, kind)
     -- Silent rev-mismatch adopt (tick replacement): user-data undos/redos
     -- notify nothing; entry rev vs session rev is the only signal. Full adopt
     -- (entry is time-traveled truth), zero writes. Runs on every trigger so
-    -- idle staleness converges on next touch.
+    -- idle staleness converges on next touch. Deliberately no key refresh:
+    -- converging the key around unmoved panels strands the next stretch in
+    -- the guide loop (adopted state + matched key + diverged panels).
     local entry = readEntry(guid)
     do
         local erev = (type(entry) == "table" and tonumber(entry.rev)) or nil
         if erev ~= lastRev then
-            if readonlyAdopt("event-rev") then
-                local w0 = acapi.getWall(guid)
-                if w0 then lastSync[guid] = syncKey(w0) end
-            end
+            readonlyAdopt("event-rev")
         end
     end
     local wall = acapi.getWall(guid)
@@ -792,10 +791,8 @@ local function handleWallSync(guid, kind)
             inhibitGeom = nil
         else
             if inhibitGeom == nil then inhibitGeom = g end
-            if readonlyAdopt("inhibit") then
-                lastSync[watchedWall] = syncKey(wall)
-            end
-            guideIfDiverged(wall)
+            readonlyAdopt("inhibit") -- align session; key deliberately stale
+            guideIfDiverged(wall)    -- (see rev-check note: stale keys route onward)
             return
         end
     else
@@ -1141,6 +1138,8 @@ RegisterWebEvent("onRefreshDividers", function(args)
             -- go silent until something re-watches (manual context is safe).
             acapi.watch(watchedWall, WATCHFUNC, { count = ROW_N })
             watchPanels()
+            local w = acapi.getWall(watchedWall)
+            if w then lastSync[watchedWall] = syncKey(w) end -- manual success converges the key
             local msg = string.format("Repaired %d points from wall data", #dividers)
             SetWebResult(msg)
             logEvent(msg)
@@ -1154,6 +1153,8 @@ RegisterWebEvent("onRefreshDividers", function(args)
         -- Re-arm subscriptions (same rollback-detachment reason as repair).
         acapi.watch(watchedWall, WATCHFUNC, { count = ROW_N })
         watchPanels()
+        local w = acapi.getWall(watchedWall)
+        if w then lastSync[watchedWall] = syncKey(w) end -- manual success converges the key
         local msg = string.format("Refreshed %d points manually", #dividers)
         SetWebResult(msg)
         logEvent(msg)

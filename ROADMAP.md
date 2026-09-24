@@ -55,9 +55,9 @@
   - Expose two simple C++ functions to Lua:
     - `acapi.watch(guid, func_url, kwargs)` → calls `ACAPI_Element_AttachObserver(guid)`.
       - `func_url` is `"script.lua\\FunctionName"` (script part recorded for future multi-script support; currently the function name is resolved as a Lua global in the shared state).
-      - `kwargs` (Lua table) is held via registry ref for the session AND serialized to JSON into `ACAPI` Project Storage (ModulData): `{guid: {func_url, kwargs}}`, so watches survive project reload. Prune GUIDs that no longer exist on load.
-			E.g. `{"46358EF2-DF29-4BA2-B313-51A8F064CA02": {"try_observer.lua\\onWallEvent", {"note": "test"}}}`
-    - `acapi.unwatch(guid)` → calls `ACAPI_Element_DetachObserver(guid)`. Clears the `guid` entry from the session map and Project Storage (also drops any pending Edit).
+      - `kwargs` (Lua table) is pinned in the C++ session map (via `luaL_ref`, i.e. the Lua registry — NOT the Windows registry) AND serialized to JSON into project ModulData (the `"watches"` blob) as `{guid: [func_url, kwargs]}` (tuple form; the legacy `{func_url, kwargs}` object form is still accepted on restore), so watches survive project reload. Prune GUIDs that no longer exist on load.
+			E.g. `{"46358EF2-DF29-4BA2-B313-51A8F064CA02": ["try_observer.lua\\onWallEvent", {"note": "test"}]}`
+    - `acapi.unwatch(guid)` → calls `ACAPI_Element_DetachObserver(guid)`. Clears the `guid` entry from the session map and the watches blob (also drops any pending Edit).
   - In the global `APIElementEventHandlerProc` callback:
     - On `APINotifyElement_Edit`, do NOT call Lua immediately — store/overwrite a pending entry per guid.
     - On `APINotifyElement_Change`, first dispatch the pending Edit (if any) as `func(guid, kwargs, "edit")`, then dispatch `func(guid, kwargs, "change")`. Lua is notified of both kinds but runs only for the last Edit in a row (drag end) plus the drop.
@@ -77,21 +77,28 @@
   - Do NOT implement watched-lists, UI observer panels, or complex C++ classes.
 
 - [ ] **Divider Demo (`try_dividers.lua`, user-data row model):**
-  - Row (`dividers`, `partName`, `count`, `opts`) lives ON THE WALL via generic `acapi.setUserData/getUserData/deleteUserData` (JSON handle, any element type, undoable) — source of truth, travels with the element through save/load/undo. Registry keeps UI prefs only. Library indices shift across reloads — rows persist the stable document name, resolved fresh on every adopt/place/refresh. Behavior (not storage) is the delete function: every sync path (tick/manual/event, rotation rebuild, re-place) deletes listed panels and re-runs division fresh; `DIVCOUNT` configurable (setting vs live-row split).
-  - Place 10 standalone divider panels (library objects on the wall centerline) on a picked wall, watch it, recompute XY from `begC`/`endC` and move them via `acapi.set(pos)` on wall `edit`/`change`. Panel part name is user-configurable (persisted in registry); panels removable via `acapi.delete`.
+  - Row lives ON THE WALL as a namespaced ownership ledger (`userData["try_dividers.lua"] = {children, partName, count, rev, opts, wall}`) via generic `acapi.setUserData/getUserData/deleteUserData` (JSON handle, any element type, undoable) — source of truth, travels with the element through save/load/undo. Registry keeps UI prefs/defaults only. Library indices shift across reloads — rows persist the stable document name, resolved fresh on every adopt/place/refresh. Behavior (not storage) is the delete function: every sync path (event/manual/deferred-retry, rotation rebuild, re-place) deletes listed panels and re-runs division fresh; `DIVCOUNT` drives the live row via replace.
+  - Place 10 standalone divider panels (library objects on the wall centerline) on a picked wall, watch it, recompute XY from `begC`/`endC` and move them via `acapi.set(pos)` on wall `edit`/`change`. Panel part name is user-configurable (form default in registry, per-wall truth in the row); panels removable via `acapi.delete`.
   - Verified end-to-end with a placeable part (`'ágy 01 27'`): row tiles the wall, params apply via post-create `Change`, drag/stretch sync follows.
   - Brick-laying params on place: `A` = division spacing (tiles the wall), `B` = wall width (auto, or fixed UI entry), `ZZYZX` = 0.25 (UI entry); all three re-applied via `setParams` on sync. Panel rotation follows the wall vector (`angle` on create); wall direction change deletes + recreates in 2 undo steps (`angle` is not `Change`-editable per DevKit).
-  - UI: center-on-point shift checkbox, auto-refresh on field edit (debounced), log-events checkbox, Inspect Part (params + lib flags), event log panel, per-item error messages.
+  - UI: center-on-point shift checkbox, field edits auto-apply (debounced), event tracing always on (Report window), Inspect Part (params + lib flags), event log panel, per-item error messages.
   - `findObject` verifies the match (case-insensitive) and rejects template/non-placeable parts loudly (e.g. `m_Viapanel_Wallpanel` fails `Create` with `BADPARS` — presumed non-placeable, flags confirmation pending); `create`/`createMany` report override counts and warn on zero matches.
   - API names are case-sensitive: script/DOC/register audit done, single mismatch (`setparams` → `setParams`) fixed.
   - Undo: `createMany` places the row in one step; `begin/endUndo` batch `set`/`setParams`/`delete` (mask-merged, deletes-first replay).
-  - [x] **Undo-safe sync (verified):** wall user data is a namespaced ownership ledger (`children`, `partName`, `count`, `rev`, `opts`, wall geometry); undo/redo aftermath adopts read-only (rev-mismatch tick included) so no transaction ever wipes a pending redo; post-undo settling syncs inhibited by geometry latch; persists change-detected; re-run wipes previous children, Unwatch releases them. Proven by the `try_undorow.lua` loop (Z-walk/Y-walk with Redo enabled throughout), ported to `try_dividers.lua`.
+  - [x] **Undo-safe sync (verified):** wall user data is a namespaced ownership ledger (`children`, `partName`, `count`, `rev`, `opts`, wall geometry); undo/redo aftermath adopts read-only (rev-mismatch detection included, event-driven since the tick deletion) so no transaction ever wipes a pending redo; post-undo settling syncs inhibited by geometry latch; persists change-detected; re-run wipes previous children, Unwatch releases them. Proven by the `try_undorow.lua` loop (Z-walk/Y-walk with Redo enabled throughout), ported to `try_dividers.lua`.
+  - `try_undorow.lua` PoC (executable spec of the undo policy): undoable wall ledger + read-only adopt + rev-mismatch polling; proved native time-travel + redo survival before the divider port.
   - [x] **Bugfix: single-step rotation re-sync.** Implemented as `acapi.syncRow` (moves + deletes + creates in one undoable command); verified: rotated wall re-divides correctly.
-  - [ ] **Replace JS heartbeat with `CallFromEventLoop` deferral (deadline: next C++ batch).** The 800 ms poll works but lags post-drop and smells; the DevKit primitive posts the sync into the main event loop from the notification handler — event-driven, no polling.
+  - [x] **Heartbeat removed (superseded, not implemented).** The 800 ms poll is deleted; all duties moved to event paths (rev-check+adopt and cause-free attribution in `handleWallSync`, failure-triggered one-shot retry). The `CallFromEventLoop` self-call was costed (MDID + service + handler + marshalling for an unobserved case) and rejected twice.
   - Needs: `acapi.set` `pos` support for objects + `acapi.delete` (done); `acapi.create` lib-type→element-type mapping fixed — `libPart.typeID` is `API_LibTypeID`, never cast to `API_ElemTypeID` (done); `ShowWebDialog` replaces the previous script's GUI instead of showing stale content (done).
 
 - [ ] **Observer Polish / Finalize (deferred):**
-  - Decide `observerLog` fate (keep as diagnostic or remove); verify reload-persistence; revisit Edit-during-drag semantics if ArchiCAD behavior differs per operation.
+  - `observerLog`: KEPT always-on (toggles removed from divider GUI; Report stream is the ground truth for notification delivery). Remaining: verify reload-persistence; revisit Edit-during-drag semantics if ArchiCAD behavior differs per operation.
+
+## Post-3.7 bugfix backlog (fine behaviour, phase stays completed)
+- [ ] **First post-undo/redo stretch convergence.** Implemented (`260922n`: adopts never converge the key, manual success does, attribution decides guide-vs-sync) — awaiting user verification that the first stretch syncs instead of guiding.
+- [ ] **Post-deep-undo subscription silence.** Open discriminator: wall edit without `[watched]` in Report = subscription detached on rollback; with `[watched]` but no dialog lines = dispatch bug; nothing at all = ArchiCAD withholds. Manual re-arm exists (Refresh/Repair); `acapi.observed()` audit binding queued for explicit detection.
+- [ ] **Merged-unit redo guid stability.** `syncRow`+row single units undo/redo atomically by design; verify restored guids match the row on matched versions.
+- [ ] **Duplicate-prune after part-change replace + redo.** Redo can resurrect cleared old-part panels as unlinked duplicates; detection/prune strategy deferred.
 
 ## Phase 3.8: PolygonReducer Port to ArchiLua (Interactive PoC)
 - [ ] **Reference Code Analysis:**

@@ -2924,9 +2924,12 @@ static std::map<std::string, WatchEntry>& WatchMap()
     return m;
 }
 
-static std::map<std::string, bool>& PendingEdits()
+// Raw-Edit burst lengths per guid (coalescing counter, not just a flag:
+// sustained bursts mean an intentional drag, short echoes mean rollback
+// settling — the count travels to Lua as DispatchWatch's 4th argument).
+static std::map<std::string, int>& PendingEdits()
 {
-    static std::map<std::string, bool> m;
+    static std::map<std::string, int> m;
     return m;
 }
 
@@ -3165,7 +3168,7 @@ static void RestoreWatches()
     }
 }
 
-static void DispatchWatch(const std::string& guidStr, const char* kind)
+static void DispatchWatch(const std::string& guidStr, const char* kind, int nEdit = 0)
 {
     auto it = WatchMap().find(guidStr);
     if (it == WatchMap().end())
@@ -3193,6 +3196,7 @@ static void DispatchWatch(const std::string& guidStr, const char* kind)
         lua_newtable(L);
     }
     lua_pushstring(L, kind);
+    lua_pushinteger(L, nEdit); // coalesced raw-Edit burst length (0 = not edit-driven)
 
     LuaDebugger* dbg = ObserverDebugger();
     bool hadHook = false;
@@ -3202,7 +3206,7 @@ static void DispatchWatch(const std::string& guidStr, const char* kind)
         hadHook = true;
     }
     ++DispatchDepth();
-    if (lua_pcall(L, 3, 0, 0) != LUA_OK) {
+    if (lua_pcall(L, 4, 0, 0) != LUA_OK) {
         const char* err = lua_tostring(L, -1);
         if (err)
             ACAPI_WriteReport(err, true);
@@ -3217,14 +3221,14 @@ static void DispatchWatch(const std::string& guidStr, const char* kind)
 
 static void FlushPendingEdits()
 {
-    std::vector<std::string> guids;
-    for (const auto& [guid, pending] : PendingEdits()) {
-        if (pending)
-            guids.push_back(guid);
+    std::vector<std::pair<std::string, int>> pending;
+    for (const auto& [guid, count] : PendingEdits()) {
+        if (count > 0)
+            pending.push_back({ guid, count });
     }
     PendingEdits().clear();
-    for (const std::string& guid : guids)
-        DispatchWatch(guid, "edit");
+    for (const auto& [guid, count] : pending)
+        DispatchWatch(guid, "edit", count);
 }
 
 static const char* NotifyName(API_ElementDBEventID id)
@@ -3301,15 +3305,17 @@ static GSErrCode __ACENV_CALL ObserverHandler(const API_NotifyElementType* et)
     if (WatchMap().find(guidStr) == WatchMap().end())
         return NoError;
     if (et->notifID == APINotifyElement_Edit) {
-        PendingEdits()[guidStr] = true; // coalesce: Lua runs once for the last Edit
+        ++PendingEdits()[guidStr]; // count the burst: Lua runs once, told how many
         return NoError;
     }
+    int burst = 0;
     auto pit = PendingEdits().find(guidStr);
     if (pit != PendingEdits().end()) {
+        burst = pit->second;
         PendingEdits().erase(pit);
-        DispatchWatch(guidStr, "edit");
+        DispatchWatch(guidStr, "edit", burst);
     }
-    DispatchWatch(guidStr, "change");
+    DispatchWatch(guidStr, "change", burst);
     return NoError;
 }
 

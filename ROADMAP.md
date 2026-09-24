@@ -95,9 +95,9 @@
   - `observerLog`: KEPT always-on (toggles removed from divider GUI; Report stream is the ground truth for notification delivery). Remaining: verify reload-persistence; revisit Edit-during-drag semantics if ArchiCAD behavior differs per operation.
 
 ## Post-3.7 bugfix backlog (fine behaviour, phase stays completed)
-- [ ] **First post-undo/redo stretch convergence.** Implemented (`260922n`: adopts never converge the key, manual success does, attribution decides guide-vs-sync) — awaiting user verification that the first stretch syncs instead of guiding.
+- [ ] **First post-undo/redo stretch convergence.** F-plan narrowed it (guide instead of silent strand) but first stretches still suppress: the gate cannot tell first-hit settling from first-hit drag. Fix in progress: burst-count through `DispatchWatch` (4th Lua arg) — sustained edit bursts (>2) bypass suppression as intentional drags; short echoes keep suppressing.
 - [ ] **Post-deep-undo subscription silence.** Open discriminator: wall edit without `[watched]` in Report = subscription detached on rollback; with `[watched]` but no dialog lines = dispatch bug; nothing at all = ArchiCAD withholds. Manual re-arm exists (Refresh/Repair); `acapi.observed()` audit binding queued for explicit detection.
-- [ ] **Merged-unit redo guid stability.** `syncRow`+row single units undo/redo atomically by design; verify restored guids match the row on matched versions.
+- [x] **Merged-unit redo guid stability (verified by usage).** Redo walks re-adopt full live counts against row-listed guids across dozens of cycles with zero orphan/mismatch episode.
 - [ ] **Duplicate-prune after part-change replace + redo.** Redo can resurrect cleared old-part panels as unlinked duplicates; detection/prune strategy deferred.
 
 ## Phase 3.8: PolygonReducer Port to ArchiLua (Interactive PoC)

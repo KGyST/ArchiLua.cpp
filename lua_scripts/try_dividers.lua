@@ -3,7 +3,7 @@
 -- On wall Change/Edit their XY positions are recomputed from the new begC/endC.
 
 -- Bump on every script change; shown in the dialog footer to verify what's running.
-local SCRIPT_VER = "260922n"
+local SCRIPT_VER = "260922o"
 
 local watchedWall = nil
 local dividers = {} -- divider entries {guid, angle}, in wall order (dense 1..N)
@@ -623,6 +623,11 @@ local lastGuideTime = 0
 -- (fresh drag); the timestamp lapses on its own so it cannot stick.
 local inhibitUntil = 0
 local inhibitGeom = nil
+local lastBurst = 0 -- last coalesced edit-burst length (0 = none or old binary)
+-- Sustained-burst threshold: coalesced edit bursts longer than this mean an
+-- intentional drag (proceed even inside the post-undo window); short echoes
+-- mean rollback settling (suppress). Tune if drags ever suppress wrongly.
+local EDIT_BURST_DRAG = 2
 -- Entry revision mirror (bumped on every effective persist). Silent rev
 -- mismatches adopt read-only: opening any transaction there would wipe a
 -- pending redo. (lastRev forward-declared at top, initialized nil implicitly.)
@@ -780,13 +785,14 @@ local function handleWallSync(guid, kind)
     -- Post-undo inhibit: settling notifications carry post-rollback geometry.
     -- Static hits (same geometry as latched) are rollback echo or a completed
     -- short drag: GUIDE (never auto-rewrite, never open a unit — redo stays
-    -- intact). A changed geometry is a drag in progress: disarm and proceed.
+    -- intact). Changed geometry OR a sustained edit burst is a drag in
+    -- progress: disarm and proceed (its redo wipe is standard and correct).
     -- First hit latches by necessity (rollback geometry is knowable only
     -- post-hoc); a short completed drag inside the window therefore guides
     -- once and syncs on continuation or re-drag — guided, never stranded.
     if os.time() < inhibitUntil then
         local g = wall and wall.begC and wall.endC and geomHash(wall) or nil
-        if inhibitGeom ~= nil and g ~= nil and g ~= inhibitGeom then
+        if (inhibitGeom ~= nil and g ~= nil and g ~= inhibitGeom) or lastBurst > EDIT_BURST_DRAG then
             inhibitUntil = 0
             inhibitGeom = nil
         else
@@ -812,7 +818,10 @@ local function handleWallSync(guid, kind)
     reportSync(kind, ok, info)
 end
 
-function onDividersWallEvent(guid, kwargs, kind)
+function onDividersWallEvent(guid, kwargs, kind, nEdit)
+    if type(nEdit) == "number" then
+        lastBurst = math.floor(nEdit) -- 0 when not edit-driven; absent on old binaries
+    end
     if kind == "undo" or kind == "redo" then
         -- During undo/redo notifications NO ArchiCAD calls that write may run
         -- (not even getWall is touched here). Arm the inhibit window for ANY

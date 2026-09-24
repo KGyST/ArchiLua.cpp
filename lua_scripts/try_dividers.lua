@@ -612,7 +612,7 @@ local inhibitGeom = nil
 -- flushed edit AND a change; the second run would redo identical work as its
 -- own undo step (generic set() has no change detection), so it is skipped.
 -- (forward-declared at top for repairRow; initialized here at load.)
-lastSync = {}
+lastSync    = {}
 
 syncKey = function(wall)
     return geomHash(wall) .. string.format(",%s,%s,%s,%s",

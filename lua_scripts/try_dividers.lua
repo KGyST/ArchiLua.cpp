@@ -3,7 +3,7 @@
 -- On wall Change/Edit their XY positions are recomputed from the new begC/endC.
 
 -- Bump on every script change; shown in the dialog footer to verify what's running.
-local SCRIPT_VER = "260922l"
+local SCRIPT_VER = "260922m"
 
 local watchedWall = nil
 local dividers = {} -- divider entries {guid, angle}, in wall order (dense 1..N)
@@ -639,7 +639,6 @@ syncKey = function(wall)
 end
 
 local lastFailMsg = nil
-local lastSuppressMsg = nil -- dedupe for the inhibit-suppressed line above
 
 -- Tiny shared helpers (every user below binds locally).
 local function watchPanels()
@@ -779,34 +778,29 @@ local function handleWallSync(guid, kind)
         logEvent(msg)
         return
     end
-    -- Post-undo inhibit: settling notifications carry post-rollback geometry;
-    -- syncing them opens a unit that wipes redo for nothing. Suppress while
-    -- geometry matches the latched snapshot; a changed geometry is a fresh
-    -- drag (edit/change refresh the wall, undo/redo never do) → disarm and
-    -- proceed, its redo wipe being standard and correct.
+    -- Post-undo inhibit: settling notifications carry post-rollback geometry.
+    -- Static hits (same geometry as latched) are rollback echo or a completed
+    -- short drag: GUIDE (never auto-rewrite, never open a unit — redo stays
+    -- intact). A changed geometry is a drag in progress: disarm and proceed.
+    -- First hit latches by necessity (rollback geometry is knowable only
+    -- post-hoc); a short completed drag inside the window therefore guides
+    -- once and syncs on continuation or re-drag — guided, never stranded.
     if os.time() < inhibitUntil then
         local g = wall and wall.begC and wall.endC and geomHash(wall) or nil
         if inhibitGeom ~= nil and g ~= nil and g ~= inhibitGeom then
             inhibitUntil = 0
             inhibitGeom = nil
-            lastSuppressMsg = nil
         else
             if inhibitGeom == nil then inhibitGeom = g end
             if readonlyAdopt("inhibit") then
                 lastSync[watchedWall] = syncKey(wall)
             end
-            local msg = "Sync suppressed (post-undo inhibit) — redo preserved"
-            if msg ~= lastSuppressMsg then
-                lastSuppressMsg = msg
-                SetWebResult(msg)
-                logEvent(msg)
-            end
+            guideIfDiverged(wall)
             return
         end
     else
         inhibitGeom = nil
     end
-    lastSuppressMsg = nil
     -- Divergence attribution (tick replacement): the stored entry geometry is
     -- the baseline. Wall matching it means rollback aftermath (or direct panel
     -- moves) — guide. Anything else is a fresh drag — sync (its redo wipe is

@@ -3,7 +3,7 @@
 -- On wall Change/Edit their XY positions are recomputed from the new begC/endC.
 
 -- Bump on every script change; shown in the dialog footer to verify what's running.
-local SCRIPT_VER = "260922j"
+local SCRIPT_VER = "260922k"
 
 local watchedWall = nil
 local dividers = {} -- divider entries {guid, angle}, in wall order (dense 1..N)
@@ -824,12 +824,12 @@ end
 function onDividersWallEvent(guid, kwargs, kind)
     if kind == "undo" or kind == "redo" then
         -- During undo/redo notifications NO ArchiCAD calls that write may run
-        -- (not even getWall is touched here). Arm the inhibit window; the next
-        -- trigger adopts read-only (never syncs: any write wipes redo).
-        if guid == watchedWall then
-            inhibitUntil = os.time() + 4 -- settling writes suppressed (redo preserved)
-            inhibitGeom = nil -- re-anchor on next gate hit (stack walks move geometry)
-        end
+        -- (not even getWall is touched here). Arm the inhibit window for ANY
+        -- of our elements (wall or tracked panel — every guid reaching Lua is
+        -- ours; a pending redo may belong to either). Next trigger adopts
+        -- read-only, never syncs: any write wipes redo.
+        inhibitUntil = os.time() + 4 -- settling writes suppressed (redo preserved)
+        inhibitGeom = nil -- re-anchor on next gate hit (stack walks move geometry)
         logEvent("undo/redo seen (" .. tostring(kind) .. "), will adopt read-only")
         return
     end

@@ -3,7 +3,7 @@
 -- On wall Change/Edit their XY positions are recomputed from the new begC/endC.
 
 -- Bump on every script change; shown in the dialog footer to verify what's running.
-local SCRIPT_VER = "260922k"
+local SCRIPT_VER = "260922l"
 
 local watchedWall = nil
 local dividers = {} -- divider entries {guid, angle}, in wall order (dense 1..N)
@@ -1142,6 +1142,11 @@ RegisterWebEvent("onRefreshDividers", function(args)
         end
         local ok, info = repairRow(watchedWall, entry)
         if ok then
+            -- Re-arm subscriptions: ArchiCAD appears to drop an element's
+            -- observer when that element is rolled back, so post-undo stretches
+            -- go silent until something re-watches (manual context is safe).
+            acapi.watch(watchedWall, WATCHFUNC, { count = ROW_N })
+            watchPanels()
             local msg = string.format("Repaired %d points from wall data", #dividers)
             SetWebResult(msg)
             logEvent(msg)
@@ -1152,6 +1157,9 @@ RegisterWebEvent("onRefreshDividers", function(args)
     end
     local ok, info = refreshDividers(watchedWall)
     if ok then
+        -- Re-arm subscriptions (same rollback-detachment reason as repair).
+        acapi.watch(watchedWall, WATCHFUNC, { count = ROW_N })
+        watchPanels()
         local msg = string.format("Refreshed %d points manually", #dividers)
         SetWebResult(msg)
         logEvent(msg)

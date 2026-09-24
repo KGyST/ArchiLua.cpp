@@ -3,7 +3,7 @@
 -- On wall Change/Edit their XY positions are recomputed from the new begC/endC.
 
 -- Bump on every script change; shown in the dialog footer to verify what's running.
-local SCRIPT_VER = "260922i"
+local SCRIPT_VER = "260922j"
 
 local watchedWall = nil
 local dividers = {} -- divider entries {guid, angle}, in wall order (dense 1..N)
@@ -679,13 +679,15 @@ local function reportSync(kind, ok, info)
         return
     end
     -- Transient refusal mid-drag (nested command refused, incl. empty-message
-    -- outer refusals): the drop (or next edit) retries current state — every
-    -- trigger re-evaluates from scratch, so no dirty flag is needed.
+    -- outer refusals): schedule ONE retry shortly after (single shot, not a
+    -- heartbeat — no periodic wakeups). The drop (or next edit) usually gets
+    -- there first; this covers short drags that end without a terminal Change.
     local low = tostring(info):lower()
     if tostring(info):find("endUndo flush refused") or tostring(info) == "" or low:find("refus") then
-        local msg = "Sync refused mid-drag (" .. tostring(kind) .. ") — drop or next edit retries"
+        local msg = "Sync refused mid-drag (" .. tostring(kind) .. ") — retry scheduled"
         SetWebResult(msg)
         logEvent(msg)
+        ExecuteJS("retrySyncOnce();")
         return
     end
     local msg = "Dividers sync failed (" .. tostring(kind) .. "): " .. tostring(info)
@@ -1158,6 +1160,15 @@ RegisterWebEvent("onRefreshDividers", function(args)
     end
 end)
 
+-- One-shot retry for refused syncs (fires once via JS timeout, never periodic).
+RegisterWebEvent("onRetrySync", function()
+    if not watchedWall then
+        return
+    end
+    logEvent("retrying refused sync (one-shot)")
+    handleWallSync(watchedWall, "retry")
+end)
+
 RegisterWebEvent("onDeleteDividers", function()
     disarmInhibit()
     markStale()
@@ -1252,7 +1263,7 @@ input{margin:4px 0;width:180px;}
 var eventLines = [];
 function eventLog(line){
     eventLines.unshift(new Date().toLocaleTimeString() + ' ' + line);
-    if(eventLines.length > 10) eventLines.pop();
+    if(eventLines.length > 50) eventLines.pop();
     document.getElementById('events').textContent = eventLines.join('\n');
 }
 function formArgs(){
@@ -1282,6 +1293,11 @@ function inspectPart(){
 }
 function countChanged(){
     archilua.CallLua('onCountChanged', JSON.stringify({ count: parseInt(document.getElementById('divCount').value, 10) }));
+}
+var retryTimer = null;
+function retrySyncOnce(){
+    if(retryTimer) clearTimeout(retryTimer);
+    retryTimer = setTimeout(function(){ retryTimer = null; archilua.DispatchEvent('onRetrySync'); }, 1200);
 }
 </script></body></html>
 ]])

@@ -11,7 +11,7 @@
 -- Acceptance: Bump x3, then Z,Z,Z must keep Edit > Redo enabled after every
 -- Z with adopted rev reading 2,1,absent; Y,Y,Y must read 1,2,3.
 
-local SCRIPT_VER = "260922g"
+local SCRIPT_VER = "260922h"
 local ROW_KEY = "try_undorow.lua"
 local WATCHFUNC = "try_undorow.lua\\onUndoRowEvent"
 
@@ -239,7 +239,7 @@ input{margin:4px 0;}
 var eventLines = [];
 function eventLog(line){
     eventLines.unshift(new Date().toLocaleTimeString() + ' ' + line);
-    if(eventLines.length > 10) eventLines.pop();
+    if(eventLines.length > 50) eventLines.pop();
     document.getElementById('events').textContent = eventLines.join('\n');
 }
 function toggleLog(){

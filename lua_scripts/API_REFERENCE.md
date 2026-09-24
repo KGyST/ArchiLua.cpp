@@ -37,7 +37,7 @@ Without begin/end, each write call creates its own undo step.
 
 `local guids = acapi.createMany(libInd, {{x, y[, angle]}, ...}, {params})` — place N objects in ONE undo step. Returns guid array.
 
-`local res = acapi.syncRow({moves = {{guid, x, y}}, del = {guids}, libInd, creates = {{x, y[, angle]}}, params = {...}})` — moves + deletes + creates in ONE undoable command. Returns `{moved = N, created = {guids}}`. Moves re-apply position and params; direction changes must go through delete+create (`angle` is not `Change`-editable).
+`local res = acapi.syncRow({moves = {{guid, x, y}}, del = {guids}, libInd, creates = {{x, y[, angle]}}, params = {...}, [label], [wireRow = {key, wallGuid, entry}]})` — moves + deletes + creates in ONE undoable command. Returns `{moved = N, created = {guids}}`. Moves re-apply position and params; direction changes must go through delete+create (`angle` is not `Change`-editable). Optional `wireRow` writes the ledger envelope in the same command (entry `children` may hold `{slot = k, angle}` markers resolved against `created[]`; foreign ledger keys preserved) — one unit for sync+row. Optional `label` renames the undo menu entry (default `"Sync Row"`).
 
 Undo batching: `beginUndo(label)` … `endUndo()` merges `set`/`setparams`/`delete` into one step (byte-wise mask merge, latest call wins; deletes replay first). `create`/`createMany` run their own command (guids needed immediately).
 

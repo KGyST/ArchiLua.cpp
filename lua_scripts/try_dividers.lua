@@ -3,7 +3,7 @@
 -- On wall Change/Edit their XY positions are recomputed from the new begC/endC.
 
 -- Bump on every script change; shown in the dialog footer to verify what's running.
-local SCRIPT_VER = "260922o"
+local SCRIPT_VER = "260924a"
 
 local watchedWall = nil
 local dividers = {} -- divider entries {guid, angle}, in wall order (dense 1..N)
@@ -799,6 +799,10 @@ local function handleWallSync(guid, kind)
             if inhibitGeom == nil then inhibitGeom = g end
             readonlyAdopt("inhibit") -- align session; key deliberately stale
             guideIfDiverged(wall)    -- (see rev-check note: stale keys route onward)
+            -- Explicit verdict line (the guide above may stay silent on latch):
+            -- a held first hit is never stranded silently.
+            SetWebResult("Post-undo input held for redo safety — drag again or press Refresh to sync")
+            logEvent("post-undo input held (redo safe); drag again or Refresh")
             return
         end
     else

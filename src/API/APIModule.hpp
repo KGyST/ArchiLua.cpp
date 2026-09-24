@@ -690,6 +690,93 @@ static int ApplyParamOverrides(lua_State* L, int paramsIdx, API_ElementMemo& mem
     return applied;
 }
 
+// Scope-free single-object creator for reuse inside any already-open undoable
+// command (extracted from CreateManyElements — behavior identical). Reads
+// overrides from the Lua params table at paramsIdx when hasParams.
+// errorMsg must hold 256 chars. Fills *outGuid. Returns GSErrCode.
+static GSErrCode CreateSingleObject(lua_State* L, Int32 libInd, double x, double y,
+    double angle, bool hasAngle, bool hasParams, int paramsIdx, int itemNo,
+    API_Guid* outGuid, char* errorMsg, int* appliedOverrides, bool* memoBypassed)
+{
+    API_Element elem;
+    BNZeroMemory(&elem, sizeof(elem));
+    elem.header.type.typeID = API_ObjectID;
+    elem.object.libInd = libInd;
+
+    API_ElementMemo memo;
+    BNZeroMemory(&memo, sizeof(memo));
+    GSErrCode e = ACAPI_Element_GetDefaults(&elem, &memo);
+    if (e != NoError) {
+        std::sprintf(errorMsg, "GetDefaults failed at item %d: err=%d", itemNo, (int)e);
+        return e;
+    }
+
+    elem.object.pos.x = x;
+    elem.object.pos.y = y;
+    if (hasAngle)
+        elem.object.angle = angle;
+
+    // Re-assert libInd: GetDefaults may reset it to the default part.
+    elem.object.libInd = libInd;
+    if (elem.header.floorInd == 0)
+        elem.header.floorInd = CurrentStory();
+
+    e = ACAPI_Element_Create(&elem, &memo);
+    if (e == APIERR_BADPARS) {
+        // Diagnostic fallback: same element without memo. If this
+        // succeeds, the defaults memo is what Create chokes on.
+        e = ACAPI_Element_Create(&elem, nullptr);
+        if (e == NoError && memoBypassed != nullptr)
+            *memoBypassed = true;
+    }
+    ACAPI_DisposeElemMemoHdls(&memo);
+    if (e != NoError) {
+        std::sprintf(errorMsg, "Element_Create failed at item %d: err=%d (libInd=%d floor=%d pos=%.3f,%.3f)",
+            itemNo, (int)e, (int)libInd, (int)elem.header.floorInd, x, y);
+        return e;
+    }
+
+    // Verify the placed element really is our part (not id=1 default).
+    API_Element placedElem;
+    BNZeroMemory(&placedElem, sizeof(placedElem));
+    placedElem.header.guid = elem.header.guid;
+    e = ACAPI_Element_Get(&placedElem);
+    if (e != NoError) {
+        std::sprintf(errorMsg, "post-create Get failed at item %d: err=%d", itemNo, (int)e);
+        return e;
+    }
+    if (placedElem.header.type.typeID == API_ObjectID &&
+        placedElem.object.libInd != libInd) {
+        std::sprintf(errorMsg, "item %d placed wrong part: wanted libInd %d, got %d",
+            itemNo, (int)libInd, (int)placedElem.object.libInd);
+        return APIERR_GENERAL;
+    }
+
+    // Overrides go through Change (Create ignores memo params).
+    if (hasParams) {
+        API_ElementMemo memo2;
+        BNZeroMemory(&memo2, sizeof(memo2));
+        e = ACAPI_Element_GetMemo(elem.header.guid, &memo2, APIMemoMask_AddPars);
+        if (e != NoError || memo2.params == nullptr) {
+            if (e == NoError)
+                ACAPI_DisposeElemMemoHdls(&memo2);
+            std::sprintf(errorMsg, "createMany: no params memo at item %d", itemNo);
+            return APIERR_GENERAL;
+        }
+        *appliedOverrides += ApplyParamOverrides(L, paramsIdx, memo2);
+        API_Element mask2;
+        ACAPI_ELEMENT_MASK_CLEAR(mask2);
+        e = ACAPI_Element_Change(&placedElem, &mask2, &memo2, APIMemoMask_AddPars, true);
+        ACAPI_DisposeElemMemoHdls(&memo2);
+        if (e != NoError) {
+            std::sprintf(errorMsg, "param change failed at item %d: err=%d", itemNo, (int)e);
+            return e;
+        }
+    }
+    *outGuid = elem.header.guid;
+    return NoError;
+}
+
 static int SetParams(lua_State* L)
 {
     const char* guidStr = lua_tostring(L, 1);
@@ -1097,83 +1184,12 @@ static int CreateManyElements(lua_State* L)
             lua_pop(L, 1);
             lua_pop(L, 1); // pos table
 
-            API_Element elem;
-            BNZeroMemory(&elem, sizeof(elem));
-            elem.header.type.typeID = API_ObjectID;
-            elem.object.libInd = libInd;
-
-            API_ElementMemo memo;
-            BNZeroMemory(&memo, sizeof(memo));
-            e = ACAPI_Element_GetDefaults(&elem, &memo);
-            if (e != NoError) {
-                std::sprintf(errorMsg, "GetDefaults failed at item %d: err=%d", (int)i, (int)e);
+            API_Guid createdGuid = APINULLGuid;
+            e = CreateSingleObject(L, libInd, x, y, angle, hasAngle, hasParams, 3,
+                (int)i, &createdGuid, errorMsg, &appliedOverrides, &memoBypassed);
+            if (e != NoError)
                 return e;
-            }
-
-            elem.object.pos.x = x;
-            elem.object.pos.y = y;
-            if (hasAngle)
-                elem.object.angle = angle;
-
-            // Re-assert libInd: GetDefaults may reset it to the default part.
-            elem.object.libInd = libInd;
-            if (elem.header.floorInd == 0)
-                elem.header.floorInd = CurrentStory();
-
-            e = ACAPI_Element_Create(&elem, &memo);
-            if (e == APIERR_BADPARS) {
-                // Diagnostic fallback: same element without memo. If this
-                // succeeds, the defaults memo is what Create chokes on.
-                e = ACAPI_Element_Create(&elem, nullptr);
-                if (e == NoError)
-                    memoBypassed = true;
-            }
-            ACAPI_DisposeElemMemoHdls(&memo);
-            if (e != NoError) {
-                std::sprintf(errorMsg, "Element_Create failed at item %d: err=%d (libInd=%d libType=%d floor=%d pos=%.3f,%.3f)",
-                             (int)i, (int)e, (int)libInd, (int)libPart.typeID,
-                             (int)elem.header.floorInd, x, y);
-                return e;
-            }
-
-            // Verify the placed element really is our part (not id=1 default).
-            API_Element placedElem;
-            BNZeroMemory(&placedElem, sizeof(placedElem));
-            placedElem.header.guid = elem.header.guid;
-            e = ACAPI_Element_Get(&placedElem);
-            if (e != NoError) {
-                std::sprintf(errorMsg, "post-create Get failed at item %d: err=%d", (int)i, (int)e);
-                return e;
-            }
-            if (placedElem.header.type.typeID == API_ObjectID &&
-                placedElem.object.libInd != libInd) {
-                std::sprintf(errorMsg, "item %d placed wrong part: wanted libInd %d, got %d",
-                             (int)i, (int)libInd, (int)placedElem.object.libInd);
-                return APIERR_GENERAL;
-            }
-
-            // Overrides go through Change (Create ignores memo params).
-            if (hasParams) {
-                API_ElementMemo memo2;
-                BNZeroMemory(&memo2, sizeof(memo2));
-                e = ACAPI_Element_GetMemo(elem.header.guid, &memo2, APIMemoMask_AddPars);
-                if (e != NoError || memo2.params == nullptr) {
-                    if (e == NoError)
-                        ACAPI_DisposeElemMemoHdls(&memo2);
-                    std::sprintf(errorMsg, "createMany: no params memo at item %d", (int)i);
-                    return APIERR_GENERAL;
-                }
-                appliedOverrides += ApplyParamOverrides(L, 3, memo2);
-                API_Element mask2;
-                ACAPI_ELEMENT_MASK_CLEAR(mask2);
-                e = ACAPI_Element_Change(&placedElem, &mask2, &memo2, APIMemoMask_AddPars, true);
-                ACAPI_DisposeElemMemoHdls(&memo2);
-                if (e != NoError) {
-                    std::sprintf(errorMsg, "param change failed at item %d: err=%d", (int)i, (int)e);
-                    return e;
-                }
-            }
-            placed.push_back(elem.header.guid);
+            placed.push_back(createdGuid);
         }
         if (hasParams && appliedOverrides == 0)
             ACAPI_WriteReport("createMany: warning — none of the override names matched a parameter", false);
@@ -1197,9 +1213,19 @@ static int CreateManyElements(lua_State* L)
     return 2;
 }
 
-// syncRow({moves={{guid,x,y}...}, del={guid...}, libInd, creates={{x,y,angle}...}, params={...}})
+// Forward declarations (defined in the observer section below; needed early
+// by SyncRow's wireRow ledger merge).
+static Json LuaTableToJson(lua_State* L, int idx, int depth = 0);
+static void PushJsonVal(lua_State* L, const Json& val);
+
+// syncRow({moves={{guid,x,y}...}, del={guid...}, libInd, creates={{x,y,angle}...}, params={...},
+//          [label], [wireRow={key, wallGuid, entry}]})
 // Whole row re-sync in ONE undoable command: moves (Change pos + params),
 // deletes (one call), creates (Create + post-Change params).
+// Optional wireRow writes the ledger envelope (entry table with `children`,
+// where created slots are {slot=k, angle} markers resolved against created[]
+// in-command) merged under key into the wall's user data — same command,
+// same undo unit. Optional label renames the undo menu entry.
 // Returns {moved=N, created={guids}} + info string, or (nil, err).
 static int SyncRow(lua_State* L)
 {
@@ -1296,6 +1322,58 @@ static int SyncRow(lua_State* L)
     else
         lua_pop(L, 1);
 
+    // Optional command label (undo menu text), default "Sync Row".
+    std::string cmdLabel("Sync Row");
+    lua_getfield(L, 1, "label");
+    if (lua_isstring(L, -1))
+        cmdLabel = lua_tostring(L, -1);
+    lua_pop(L, 1);
+
+    // Optional wireRow = {key, wallGuid, entry}: entry is the ledger envelope
+    // table whose `children` array may hold {slot=k, angle} markers for
+    // positions created by this same call. When present and structurally
+    // valid, the row is written in the SAME undoable command (one unit for
+    // sync+row). Absent or malformed entry table -> legacy behavior, except
+    // a missing key/wallGuid is a hard error (silent mis-wire is worse).
+    bool hasWire = false;
+    std::string wireKey, wireWall;
+    int wireEntryRef = LUA_NOREF;
+    lua_getfield(L, 1, "wireRow");
+    if (lua_istable(L, -1)) {
+        lua_getfield(L, -1, "key");
+        if (lua_isstring(L, -1))
+            wireKey = lua_tostring(L, -1);
+        lua_pop(L, 1);
+        lua_getfield(L, -1, "wallGuid");
+        if (lua_isstring(L, -1))
+            wireWall = lua_tostring(L, -1);
+        lua_pop(L, 1);
+        if (wireKey.empty() || wireWall.empty()) {
+            lua_pop(L, 1);
+            lua_pushnil(L);
+            lua_pushstring(L, "wireRow: need key and wallGuid strings");
+            return 2;
+        }
+        lua_getfield(L, -1, "entry");
+        if (!lua_istable(L, -1)) {
+            lua_pop(L, 2);
+            lua_pushnil(L);
+            lua_pushstring(L, "wireRow: need entry table");
+            return 2;
+        }
+        lua_getfield(L, -1, "children");
+        if (!lua_istable(L, -1)) {
+            lua_pop(L, 3);
+            lua_pushnil(L);
+            lua_pushstring(L, "wireRow: need entry.children array");
+            return 2;
+        }
+        lua_pop(L, 1); // children
+        wireEntryRef = luaL_ref(L, LUA_REGISTRYINDEX); // pops entry
+        hasWire = true;
+    }
+    lua_pop(L, 1); // wireRow (or nil)
+
     if (moves.empty() && dels.empty() && news.empty()) {
         if (hasParams)
             lua_pop(L, 1);
@@ -1311,9 +1389,11 @@ static int SyncRow(lua_State* L)
     char errorMsg[256] = {};
     int moved = 0;
     int appliedOverrides = 0;
+    bool memoBypassed = false;
     std::vector<API_Guid> created;
 
-    GSErrCode err = ACAPI_CallUndoableCommand("Sync Row", [&]() -> GSErrCode {
+    GS::UniString undoLabel(cmdLabel.c_str());
+    GSErrCode err = ACAPI_CallUndoableCommand(undoLabel, [&]() -> GSErrCode {
         // 1. Moves: Change pos (+ params memo when given).
         for (const MoveItem& m : moves) {
             API_Guid guid = APIGuidFromString(m.guid.c_str());
@@ -1373,74 +1453,113 @@ static int SyncRow(lua_State* L)
                 libChecked = true;
             }
             const NewItem& it = news[i];
-            API_Element elem;
-            BNZeroMemory(&elem, sizeof(elem));
-            elem.header.type.typeID = API_ObjectID;
-            elem.object.libInd = libInd;
-
-            API_ElementMemo memo;
-            BNZeroMemory(&memo, sizeof(memo));
-            GSErrCode e = ACAPI_Element_GetDefaults(&elem, &memo);
-            if (e != NoError) {
-                std::sprintf(errorMsg, "GetDefaults failed at new item %d: err=%d", (int)i + 1, (int)e);
+            API_Guid createdGuid = APINULLGuid;
+            GSErrCode e = CreateSingleObject(L, libInd, it.x, it.y, it.angle, it.hasAngle,
+                hasParams, paramsIdx, (int)i + 1, &createdGuid, errorMsg, &appliedOverrides, &memoBypassed);
+            if (e != NoError)
                 return e;
-            }
+            created.push_back(createdGuid);
+        }
 
-            elem.object.pos.x = it.x;
-            elem.object.pos.y = it.y;
-            if (it.hasAngle)
-                elem.object.angle = it.angle;
-            elem.object.libInd = libInd;
-            if (elem.header.floorInd == 0)
-                elem.header.floorInd = CurrentStory();
-
-            e = ACAPI_Element_Create(&elem, &memo);
-            ACAPI_DisposeElemMemoHdls(&memo);
-            if (e != NoError) {
-                std::sprintf(errorMsg, "Element_Create failed at new item %d: err=%d (libInd=%d floor=%d)",
-                             (int)i + 1, (int)e, (int)libInd, (int)elem.header.floorInd);
-                return e;
-            }
-
-            API_Element placedElem;
-            BNZeroMemory(&placedElem, sizeof(placedElem));
-            placedElem.header.guid = elem.header.guid;
-            e = ACAPI_Element_Get(&placedElem);
-            if (e != NoError) {
-                std::sprintf(errorMsg, "post-create Get failed at new item %d: err=%d", (int)i + 1, (int)e);
-                return e;
-            }
-            if (placedElem.header.type.typeID == API_ObjectID &&
-                placedElem.object.libInd != libInd) {
-                std::sprintf(errorMsg, "new item %d placed wrong part: wanted %d, got %d",
-                             (int)i + 1, (int)libInd, (int)placedElem.object.libInd);
-                return APIERR_GENERAL;
-            }
-
-            if (hasParams) {
-                API_ElementMemo memo2;
-                BNZeroMemory(&memo2, sizeof(memo2));
-                e = ACAPI_Element_GetMemo(elem.header.guid, &memo2, APIMemoMask_AddPars);
-                if (e != NoError || memo2.params == nullptr) {
-                    if (e == NoError)
-                        ACAPI_DisposeElemMemoHdls(&memo2);
-                    std::sprintf(errorMsg, "no params memo at new item %d", (int)i + 1);
-                    return APIERR_GENERAL;
-                }
-                appliedOverrides += ApplyParamOverrides(L, paramsIdx, memo2);
-                API_Element mask2;
-                ACAPI_ELEMENT_MASK_CLEAR(mask2);
-                e = ACAPI_Element_Change(&placedElem, &mask2, &memo2, APIMemoMask_AddPars, true);
-                ACAPI_DisposeElemMemoHdls(&memo2);
-                if (e != NoError) {
-                    std::sprintf(errorMsg, "param change failed at new item %d: err=%d", (int)i + 1, (int)e);
-                    return e;
+        // 4. Wired row: substitute created guids into {slot} markers, merge
+        // the envelope under our ledger key (foreign keys preserved), write —
+        // same command, same undo unit. Any failure rolls back everything.
+        GSErrCode wireErr = NoError;
+        if (hasWire) {
+            lua_rawgeti(L, LUA_REGISTRYINDEX, wireEntryRef);
+            lua_getfield(L, -1, "children");
+            if (lua_istable(L, -1)) {
+                size_t nc = lua_rawlen(L, -1);
+                for (size_t i = 1; i <= nc && wireErr == NoError; ++i) {
+                    lua_rawgeti(L, -1, (lua_Integer)i);
+                    if (lua_istable(L, -1)) {
+                        lua_getfield(L, -1, "slot");
+                        if (lua_isinteger(L, -1)) {
+                            lua_Integer slot = lua_tointeger(L, -1);
+                            lua_pop(L, 1);
+                            if (slot < 1 || slot > (lua_Integer)created.size()) {
+                                std::sprintf(errorMsg, "wireRow: slot %d out of range, created %d",
+                                    (int)slot, (int)created.size());
+                                wireErr = APIERR_BADPARS;
+                            } else {
+                                GS::UniString gs = APIGuidToString(created[(size_t)slot - 1]);
+                                lua_pushstring(L, gs.ToCStr().Get());
+                                lua_setfield(L, -2, "guid");
+                                lua_pushnil(L);
+                                lua_setfield(L, -2, "slot");
+                            }
+                        } else {
+                            lua_pop(L, 1);
+                        }
+                    }
+                    lua_pop(L, 1); // child
                 }
             }
-            created.push_back(elem.header.guid);
+            lua_pop(L, 1); // children
+            if (wireErr == NoError) {
+                Json entry = LuaTableToJson(L, -1);
+                API_Guid wallGuid = APIGuidFromString(wireWall.c_str());
+                API_Element wel;
+                BNZeroMemory(&wel, sizeof(wel));
+                wel.header.guid = wallGuid;
+                wireErr = ACAPI_Element_Get(&wel);
+                if (wireErr != NoError) {
+                    std::sprintf(errorMsg, "wireRow: wall not found: err=%d", (int)wireErr);
+                } else {
+                    API_Elem_Head head = {};
+                    head.type = wel.header.type;
+                    head.guid = wallGuid;
+                    Json ledger;
+                    ledger.type = Json::Obj;
+                    API_ElementUserData lud = {};
+                    GSErrCode ge = ACAPI_Element_GetUserData(&head, &lud, 0);
+                    if (ge == NoError && lud.dataHdl != nullptr) {
+                        GSSize sz = BMGetHandleSize((GSHandle)lud.dataHdl);
+                        std::string text(*lud.dataHdl, (size_t)sz);
+                        BMKillHandle(&lud.dataHdl);
+                        Json parsed = Json::Parse(text);
+                        if (parsed.type == Json::Obj)
+                            ledger = parsed;
+                    }
+                    bool replaced = false;
+                    for (size_t k = 0; k < ledger.o.size(); ++k) {
+                        if (ledger.o[k].first == wireKey) {
+                            ledger.o[k].second = entry;
+                            replaced = true;
+                            break;
+                        }
+                    }
+                    if (!replaced)
+                        ledger.o.push_back({ wireKey, entry });
+                    std::string out = ledger.Dump();
+                    GSHandle h = BMAllocateHandle((GSSize)out.size() + 1, 0, 0);
+                    if (h == nullptr) {
+                        std::sprintf(errorMsg, "wireRow: out of memory");
+                        wireErr = APIERR_MEMFULL;
+                    } else {
+                        memcpy(*h, out.c_str(), out.size() + 1);
+                        API_ElementUserData ud = {};
+                        ud.dataVersion = 1;
+                        ud.platformSign = GS::Win_Platform_Sign;
+                        ud.flags = 0;
+                        ud.dataHdl = h;
+                        wireErr = ACAPI_Element_SetUserData(&head, &ud);
+                        BMKillHandle(&h);
+                        if (wireErr != NoError) {
+                            std::sprintf(errorMsg, "wireRow: SetUserData failed: err=%d", (int)wireErr);
+                        }
+                    }
+                }
+            }
+            lua_pop(L, 1); // entry table
+            if (wireErr != NoError)
+                return wireErr;
         }
         return NoError;
     });
+
+    if (hasWire)
+        luaL_unref(L, LUA_REGISTRYINDEX, wireEntryRef);
 
     if (hasParams)
         lua_pop(L, 1); // params table kept for the whole command
@@ -1461,13 +1580,10 @@ static int SyncRow(lua_State* L)
         lua_rawseti(L, -2, (lua_Integer)(i + 1));
     }
     lua_setfield(L, -2, "created");
-    lua_pushfstring(L, "moved %d, created %d, %d overrides", moved, (int)created.size(), appliedOverrides);
+    lua_pushfstring(L, "moved %d, created %d, %d overrides%s", moved, (int)created.size(), appliedOverrides,
+        memoBypassed ? " (memo bypassed!)" : "");
     return 2;
 }
-
-// Forward declarations (defined in the observer section below).
-static Json LuaTableToJson(lua_State* L, int idx, int depth = 0);
-static void PushJsonVal(lua_State* L, const Json& val);
 
 // Element user data (Phase 3.7 row model): arbitrary Lua tables stored as
 // JSON text in the element record (API_ElementUserData.dataHdl), travelling

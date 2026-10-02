@@ -100,6 +100,19 @@
 - [x] **Merged-unit redo guid stability (verified by usage).** Redo walks re-adopt full live counts against row-listed guids across dozens of cycles with zero orphan/mismatch episode.
 - [ ] **Duplicate-prune after part-change replace + redo.** Redo can resurrect cleared old-part panels as unlinked duplicates; detection/prune strategy deferred.
 
+## Phase 3.79: archilua-lib Split as Preparation for archilua-based ArchiCAD addons
+- [ ] **Repo split (git submodule, mirroring `CommonLibs.cpp` — never a copy):** extract demo-agnostic code into `archilua-lib` (own repo).
+  - `archilua-lib` gets (generic infrastructure any addon needs):
+    - ArchiCAD C++ API wrapper surface (`src/API/*`: the full `acapi.*` binding set) + Lua state/bridge/DAP (`src/Bridge/*`).
+    - Generic webview-palette + JS bridge + EDT dispatch core; registry handling (`regRead`/`regWrite`); logging (`WriteReport`/`print()` bridge).
+  - ArchiLua retains (dummy/test addon + dev tooling only):
+    - Addon lifecycle: menus, GUIDs, GRC resource pipeline (stays in-addon per constraints), modeless registration.
+    - Dev-only UI: file-picker dialog, Menu 1/2 structure.
+    - Lua scripts as examples AND the lib's regression suite (must pass unchanged).
+- [ ] **Build migration (biggest cost):** `.sln`/`.vcxproj` split (lib as static lib vs compiled-twice sources — decide in ADR); `ArchiLuaDeps.props`/CMake boundaries redrawn; GRC pipeline untouched in-addon.
+- [ ] **Done criteria:** ArchiLua builds against `archilua-lib` with zero C++ changes on the lib side; all `try_*.lua` pass unchanged; Phase 3.8 targets the lib (its "C++ Bridge extensions" land there, not in ArchiLua).
+- [ ] **ADR:** record submodule-vs-copy, static-lib-vs-sources, and the UI split in `Architectural Decision Records/` per protocol (required for significant architectural changes).
+
 ## Phase 3.8: PolygonReducer Port to ArchiLua (Interactive PoC)
 - [ ] **Reference Code Analysis:**
   - Read reference implementation from `docs/reference/PolygonReducer.cpp` (or local repo reference).

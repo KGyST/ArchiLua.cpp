@@ -109,11 +109,23 @@
     - Addon lifecycle: menus, GUIDs, GRC resource pipeline (stays in-addon per constraints), modeless registration.
     - Dev-only UI: file-picker dialog, Menu 1/2 structure.
     - Lua scripts as examples AND the lib's regression suite (must pass unchanged).
+	- New folder structure:
+		- `Git\ArchiLua.cpp`
+			- Git\ArchiLua.cpp\lib\archilua-lib` (as a submodule)
+- [ ] **Initialize Git structure** for the archilua-lib, user will provide the remote server data
 - [ ] **Build migration (biggest cost):** `.sln`/`.vcxproj` split (lib as static lib vs compiled-twice sources — decide in ADR); `ArchiLuaDeps.props`/CMake boundaries redrawn; GRC pipeline untouched in-addon.
-- [ ] **Done criteria:** ArchiLua builds against `archilua-lib` with zero C++ changes on the lib side; all `try_*.lua` pass unchanged; Phase 3.8 targets the lib (its "C++ Bridge extensions" land there, not in ArchiLua).
+- [ ] **Done criteria:** ArchiLua builds against `archilua-lib` with zero C++ changes on the lib side; all `try_*.lua` pass unchanged; Phase 5 targets the lib (its "C++ Bridge extensions" land there, not in ArchiLua).
 - [ ] **ADR:** record submodule-vs-copy, static-lib-vs-sources, and the UI split in `Architectural Decision Records/` per protocol (required for significant architectural changes).
+- [ ] **Update ARCHITECTURE.md**
 
-## Phase 3.8: PolygonReducer Port to ArchiLua (Interactive PoC)
+## Phase 4: AI Harness Port (External Script Execution)
+- [ ] **HTTP harness server (loopback-only, menu toggle, default off):** detached server thread (WinSock `INADDR_LOOPBACK`, modeled on the DAP listener) + main-thread pump via `DGRegisterIdleCallBack`; depth-1 queue, further POSTs get HTTP 429. Default port `4123` (registry-configurable, never 4711).
+- [ ] **Single generic endpoint:** `POST /eval {lua}` → `200 {ok, result?, error?}` (per-call granularity emerges from usage — one-liners like `return acapi.getWall("…")` — zero per-binding maintenance); `GET /health` for liveness. Shared Lua state (documented); undo semantics natural (ordinary units).
+- [ ] **Logs by convention:** scripts self-instrument (`local log = {}; … return {result, log}`) instead of C++ output capture.
+- [ ] **Reference client:** `harness/acapi.py` (thin POST wrapper + move-and-assert example loop), excluded from addon build. Security: loopback-only + opt-in (RCE-by-design, same trust as DAP port).
+- [ ] **Verify:** toggle on → health → version; Python move-and-assert green with ordinary undo units; modal-busy returns busy/timeout (never hangs); toggle defaults off on restart. Absorbs the Phase 8 SamuTeszt Hook as result-payload format.
+
+## Phase 5: PolygonReducer Port to ArchiLua (Interactive PoC)
 - [ ] **Reference Code Analysis:**
   - Read reference implementation from `docs/reference/PolygonReducer.cpp` (or local repo reference).
   - Identify required C++ Bridge extensions for `API_ElementMemo` handling:
@@ -123,8 +135,10 @@
 - [ ] **Interactive Test Script (`lua_scripts/try_polygon_reducer.lua`):**
   - **Single-File GUI:** Open a Modeless `DG::WebView` containing:
     - Slider: target point count (3 to N).
+		- Entry: the same.
     - Entry: minimum edge length threshold.
     - Button: "Pick Polyline/Slab".
+		The Slider and two Entries set each other together
   - **Lua Preprocessing & Reduction Logic:**
     - Implement arc vectorization (converting arcs into segmented vertices based on edge length).
     - Implement collinear midpoint removal (filtering out redundant vertices on straight edges).
@@ -132,11 +146,17 @@
   - **Live Redraw & Metadata Tracking:**
     - GUI callbacks trigger `acapi.drawfeedback(reducedPoly)` on slider/entry input for live preview.
     - On confirmation/apply, create the new reduced element and attach metadata referencing the original parent GUID.
-		
-## Phase 3.9: Async Minizinc Discrete Optimization
+  - **Build System Setup:**
+		- While developing (`Debug` build target) , the ordinary way: separate lua script run by ArchiLua's load/run
+		- When ready (`Release` build target): 
+			- lua script 
+				- joined as translation unit
+				- packed as string literal
+			- C++ wrapper to be displayed in the menu: `Samu/Polygonreducer` (as seen in original C++ project)  
+			
+## Phase 6: Async Minizinc for Discrete Optimization
 
-
-## Phase 4: Stability & Logic (The MVP)
+## Phase 7: Stability & Logic (The MVP)
 - [ ] **GC Safety:** C++ side `collectgarbage("stop")` before ACAPI calls and `collectgarbage("collect")` on scope exit.
 - [ ] **Transaction Exception Safety:** Ensure that if a Lua script throws an error between `beginundo` and `endundo`, the C++ host gracefully aborts/closes the open ACAPI transaction to prevent DB corruption.
 - [ ] **Transformation Logic:** Emulate GDL-style `ADD`, `MUL`, `ROTX` stack within Lua for panel alignment.
@@ -144,7 +164,7 @@
 ---
 ### v0.1.0 - MVP REACHED
 
-## Phase 5: Scaling (Post-MVP)
+## Phase 8: Scaling (Post-MVP)
 - [ ] **Userdata Migration:** Replace Lua tables with full userdata + metatables for element objects. Adds `__index` for lazy access, `__newindex` for writes, `__gc` for cleanup, type identity via metatable comparison.
 - [ ] **GUI Integration:** `LUA-LIMGUI` (Dear ImGui) overlay for real-time parameter tweaking.
 - [x] **Event Listeners:** Lua callbacks triggered by ArchiCAD element modification events. **MOVED to Phase 3.7** (own phase, was listed here). A wall modified can trigger a lua script again that was run on that wall.
@@ -152,7 +172,7 @@
 - [ ] **ArchiCAD 28/29:** support
 - [ ] **SamuTeszt Hook:** JSON dump of Lua tables before/after placement for regression testing.
 
-## Phase 6: Generalizing (Support other Languages) 
+## Phase 9: Generalizing (Support other Languages) 
 - [ ] **Python Interpreter Integration:** A Python (and later other languages) interpreter to be integrated
   - A common API interface / Bridge is to be defined, so that multiple language interpreters can be added later on
 
